@@ -266,6 +266,11 @@ namespace CampaignLogger {
         }
 
         private void add_new_session(object sender, RoutedEventArgs e) {
+            // handle any outstanding updates first so we have the most up-to-date info
+            if (this.timeline_update_due is not null) {
+                this.timeline_update_due = null;
+                this.do_timeline_update();
+            }
             TextPointer insertPoint = this.log_box.Document.ContentEnd.GetInsertionPosition(LogicalDirection.Forward);
             int sessionId = 1;
             string relative = "";
