@@ -1,0 +1,150 @@
+﻿<Window x:Class="CampaignLogger.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:CampaignLogger"
+        mc:Ignorable="d"
+        Title="Campaign Logger" Width="1000" Height="800">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1*"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="2*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!--TODO: menu-->
+
+        <Grid Grid.Row="1" Grid.Column="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="1*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="1*"/>
+            </Grid.RowDefinitions>
+
+            <TabControl Grid.Row="0" Grid.Column="0" Margin="1">
+                <TabItem Header="Topics">
+                    <!--TODO: topics list-->
+                </TabItem>
+
+                <TabItem Header="Party">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <CheckBox Grid.Row="0" Grid.Column="0" Margin="1" Name="party_departed_box" Content="Show Departed Characters"
+                                  Click="toggle_party_departed"/>
+
+                        <ListView Grid.Row="1" Grid.Column="0" Name="party_list"><!--TODO: SelectedValuePath, SelectionChanged-->
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="Name" DisplayMemberBinding="{Binding name}"/>
+                                    <GridViewColumn Header="Level" DisplayMemberBinding="{Binding level}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </Grid>
+                    <!--TODO: characters list; show/hide departed characters-->
+                </TabItem>
+
+                <TabItem Header="Inventory">
+                    <!--TODO: inventory list/tree/???-->
+                </TabItem>
+
+                <TabItem Header="Events">
+                    <!--TODO: events list-->
+                </TabItem>
+
+                <TabItem Header="Tasks">
+                    <!--TODO: tasks list-->
+                </TabItem>
+
+                <TabItem Header="Sessions">
+                    <!--TODO: sessions list-->
+                </TabItem>
+            </TabControl>
+
+            <GridSplitter Grid.Row="1" Grid.Column="0" HorizontalAlignment="Stretch" VerticalAlignment="Center" Height="5"/>
+
+            <TabControl Grid.Row="2" Grid.Column="0" Margin="1">
+                <TabItem Header="Details" Name="details_tab"/><!--TODO: details stuff in code-->
+                <TabItem Header="Mentions">
+                    <!--TODO: mentions list-->
+                </TabItem>
+            </TabControl>
+        </Grid>
+
+        <GridSplitter Grid.Row="1" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Stretch" Width="5"/>
+
+        <Grid Grid.Row="1" Grid.Column="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <GroupBox Grid.Row="0" Grid.Column="0" Header="Current State">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="2*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Label Grid.Row="0" Grid.Column="0" Margin="1" Content="Timestamp:"/>
+                    <Label Grid.Row="0" Grid.Column="1" Margin="1" Name="timestamp_box" Content=""/>
+                    <Label Grid.Row="0" Grid.Column="2" Margin="1" Content="Session:"/>
+                    <Label Grid.Row="0" Grid.Column="3" Margin="1" Name="session_box" Content=""/>
+                    <Button Grid.Row="0" Grid.Column="4" Margin="1" Content="New Session" Click="add_new_session"/>
+                </Grid>
+            </GroupBox>
+
+            <RichTextBox Grid.Row="1" Grid.Column="0" Name="log_box" FontFamily="Consolas" FontSize="11.5pt"
+                         TextChanged="on_log_change" KeyDown="on_log_key_down">
+                <RichTextBox.CommandBindings>
+                    <CommandBinding Command="AlignCenter" CanExecute="suppress_command"/>
+                    <CommandBinding Command="AlignJustify" CanExecute="suppress_command"/>
+                    <CommandBinding Command="AlignLeft" CanExecute="suppress_command"/>
+                    <CommandBinding Command="AlignRight" CanExecute="suppress_command"/>
+                    <CommandBinding Command="DecreaseFontSize" CanExecute="suppress_command"/>
+                    <CommandBinding Command="DecreaseIndentation" CanExecute="suppress_command"/>
+                    <CommandBinding Command="IncreaseFontSize" CanExecute="suppress_command"/>
+                    <CommandBinding Command="IncreaseIndentation" CanExecute="suppress_command"/>
+                    <CommandBinding Command="TabBackward" CanExecute="suppress_command"/>
+                    <CommandBinding Command="TabForward" CanExecute="suppress_command"/>
+                    <CommandBinding Command="ToggleBold" CanExecute="suppress_command"/>
+                    <CommandBinding Command="ToggleBullets" CanExecute="suppress_command"/>
+                    <CommandBinding Command="ToggleInsert" CanExecute="suppress_command"/>
+                    <CommandBinding Command="ToggleNumbering" CanExecute="suppress_command"/>
+                    <CommandBinding Command="ToggleSubscript" CanExecute="suppress_command"/>
+                    <CommandBinding Command="ToggleSuperscript" CanExecute="suppress_command"/>
+                    <CommandBinding Command="ToggleUnderline" CanExecute="suppress_command"/>
+                </RichTextBox.CommandBindings>
+                <RichTextBox.Resources>
+                    <Style TargetType="{x:Type Paragraph}">
+                        <Setter Property="Margin" Value="0"/>
+                    </Style>
+                </RichTextBox.Resources>
+            </RichTextBox>
+        </Grid>
+    </Grid>
+</Window>
