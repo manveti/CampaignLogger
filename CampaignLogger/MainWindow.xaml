@@ -5,12 +5,12 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:CampaignLogger"
         mc:Ignorable="d"
-        Title="Campaign Logger" Width="1000" Height="800">
+        Title="Campaign Logger" Width="1500" Height="800">
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="1*"/>
             <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="2*"/>
+            <ColumnDefinition Width="4*"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -47,11 +47,12 @@
                         <CheckBox Grid.Row="0" Grid.Column="0" Margin="1" Name="party_departed_box" Content="Show Departed Characters"
                                   Click="toggle_party_departed"/>
 
-                        <ListView Grid.Row="1" Grid.Column="0" Name="party_list"><!--TODO: SelectedValuePath, SelectionChanged-->
+                        <ListView Grid.Row="1" Grid.Column="0" Name="party_list" SelectedValuePath="name"><!--TODO: SelectionChanged-->
                             <ListView.View>
                                 <GridView>
                                     <GridViewColumn Header="Name" DisplayMemberBinding="{Binding name}"/>
                                     <GridViewColumn Header="Level" DisplayMemberBinding="{Binding level}"/>
+                                    <GridViewColumn Header="XP" DisplayMemberBinding="{Binding xp}"/>
                                 </GridView>
                             </ListView.View>
                         </ListView>
@@ -119,7 +120,7 @@
             </GroupBox>
 
             <RichTextBox Grid.Row="1" Grid.Column="0" Name="log_box" FontFamily="Consolas" FontSize="11.5pt"
-                         TextChanged="on_log_change" KeyDown="on_log_key_down">
+                         HorizontalScrollBarVisibility="Auto" TextChanged="on_log_change" KeyDown="on_log_key_down">
                 <RichTextBox.CommandBindings>
                     <CommandBinding Command="AlignCenter" CanExecute="suppress_command"/>
                     <CommandBinding Command="AlignJustify" CanExecute="suppress_command"/>

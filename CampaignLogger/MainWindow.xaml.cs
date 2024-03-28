@@ -22,8 +22,11 @@ namespace CampaignLogger {
         private static readonly Regex SESSION_EXP = new Regex(
             @"^s(?<relative>[+])?(?<id>\d+)\s+[(](?<date>[^)]+)[)]:$", RegexOptions.Compiled | RegexOptions.ExplicitCapture
         );
-        private static readonly Regex SESSION_ENTRY_PREFIX_EXP = new Regex(
-            @"^(?<id>\d{4}):\s", RegexOptions.Compiled | RegexOptions.ExplicitCapture
+        private static readonly Regex SESSION_ENTRY_EXP = new Regex(
+            @"^\d{4}:\s+(?<line>.*)", RegexOptions.Compiled | RegexOptions.ExplicitCapture
+        );
+        private static readonly Regex SESSION_ENTRY_CONTINUATION_EXP = new Regex(
+            @"^\s+(?<continuation>.+)", RegexOptions.Compiled | RegexOptions.ExplicitCapture
         );
         private static readonly Regex SESSION_IN_GAME_TIMESTAMP_EXP = new Regex(
             @"^(?<timestamp>.+?)(\s+[(]continued[)])?:$", RegexOptions.Compiled | RegexOptions.ExplicitCapture
@@ -32,13 +35,16 @@ namespace CampaignLogger {
         private class CharacterEntry {
             private string _name;
             private string _level;
+            private string _xp;
 
             public string name => this._name;
             public string level => this._level;
+            public string xp => this._xp;
 
-            public CharacterEntry(string name, int level = 0) {
+            public CharacterEntry(string name, int level = 0, int xp = 0) {
                 this._name = name;
                 this._level = (level > 0 ? level.ToString() : "");
+                this._xp = (level > 0 ? xp.ToString() : "");
             }
         }
 
@@ -62,12 +68,21 @@ namespace CampaignLogger {
         }
 
         private void update_party_list() {
+            HashSet<string> seenCharacters = new HashSet<string>();
             this.party_display.Clear();
-            foreach (string name in this.model.characters.Keys) {
-                if ((this.model.characters[name].departure is not null) && (this.party_departed_box.IsChecked != true)) {
-                    continue;
+            foreach (string name in this.model.campaign_state.characters.Keys) {
+                CharacterState character = this.model.campaign_state.characters[name];
+                this.party_display.Add(new CharacterEntry(name, character.level, character.xp));
+                seenCharacters.Add(name);
+            }
+            if (this.party_departed_box.IsChecked == true) {
+                // add characters listed in the players section but not currently in the party
+                foreach (string name in this.model.characters.Keys) {
+                    if (seenCharacters.Contains(name)) {
+                        continue;
+                    }
+                    this.party_display.Add(new CharacterEntry(name));
                 }
-                this.party_display.Add(new CharacterEntry(name)); //TODO: level
             }
             this.party_display.Sort((x, y) => x.name.CompareTo(y.name));
             this.party_list.Items.Refresh();
@@ -107,7 +122,7 @@ namespace CampaignLogger {
                         continue;
                     }
                     if (this.model.characters.ContainsKey(match.Groups["name"].Value)) {
-                        CharacterRecord character = this.model.characters[match.Groups["name"].Value];
+                        CharacterExtraInfo character = this.model.characters[match.Groups["name"].Value];
                         character.player = player;
                         if (match.Groups["description"].Success) {
                             character.description = match.Groups["description"].Value;
@@ -117,7 +132,7 @@ namespace CampaignLogger {
                     else {
                         string description = (match.Groups["description"].Success ? match.Groups["description"].Value : "");
                         string departure = (match.Groups["departure"].Success ? match.Groups["departure"].Value : null);
-                        CharacterRecord character = new CharacterRecord(player, description, departure);
+                        CharacterExtraInfo character = new CharacterExtraInfo(player, description, departure);
                         this.model.characters[match.Groups["name"].Value] = character;
                     }
                     if (unreferencedChars.Contains(match.Groups["name"].Value)) {
@@ -138,7 +153,6 @@ namespace CampaignLogger {
                 if (!this.model.characters.ContainsKey(name)) {
                     continue;
                 }
-                //TODO: if this.model.characters[name] has timeline references: continue
                 this.model.characters.Remove(name);
             }
             // update party display
@@ -147,7 +161,8 @@ namespace CampaignLogger {
 
         private void do_timeline_update() {
             List<SessionRecord> sessions = new List<SessionRecord>();
-            SessionRecord curSession = null;
+            SessionRecord curSession = null, updateSession = null;
+            int updateOffset = 0;
             TextPointer startPointer = this.model.timeline_section_start;
             if (startPointer is null) {
                 startPointer = this.model.players_section_end;
@@ -155,17 +170,67 @@ namespace CampaignLogger {
             if (startPointer is null) {
                 startPointer = this.log_box.Document.ContentStart.GetNextInsertionPosition(LogicalDirection.Forward);
             }
-            //TODO: set endPointer based on timeline_update_session and timeline_update_session_dirty
             TextPointer endPointer = this.log_box.Document.ContentEnd;
-            TextPointer prevLine = null, lineEnd;
+            if (this.timeline_update_session < this.model.sessions.Count) {
+                updateSession = this.model.sessions[this.timeline_update_session];
+                updateOffset = updateSession.events.Count;
+                if (!this.timeline_update_session_dirty) {
+                    // end before start of clean session's lines; we'll need to pick up the new lines to append after
+                    endPointer = updateSession.start;
+                }
+                else if (this.timeline_update_session > 0) {
+                    // just roll through end of dirty session
+                    endPointer = this.model.sessions[this.timeline_update_session - 1].start;
+                }
+            }
+            TextPointer prevLine = null, lineEnd = null, nextLineStart;
             bool needStart = (this.model.timeline_section_start is null);
-            for (TextPointer lineStart = startPointer; lineStart.GetOffsetToPosition(endPointer) > 0; lineStart = lineEnd) {
+            string curLine = null;
+            TextPointer curLineStart = null;
+            bool needTail = (updateSession is not null) && (!this.timeline_update_session_dirty), firstTail = false, inTail = false;
+            for (TextPointer lineStart = startPointer; lineStart.GetOffsetToPosition(endPointer) > 0; lineStart = nextLineStart) {
+                if (firstTail) {
+                    // first line of end of clean update session; process outstanding line if we have one
+                    if (curLine is not null) {
+                        curSession.events.AddRange(LogEvent.parse(new LogReference(curLine, curLineStart, lineEnd)));
+                        curLine = null;
+                    }
+                    curSession = updateSession;
+                    inTail = true;
+                    //TODO: handle continuation of final line of clean updateSession
+                    firstTail = false;
+                }
                 lineEnd = lineStart.GetLineStartPosition(1);
                 if (lineEnd is null) {
                     lineEnd = endPointer;
                 }
+                nextLineStart = lineEnd;
+                if ((needTail) && (nextLineStart.GetOffsetToPosition(endPointer) <= 0)) {
+                    // adjust start/end pointers to pick up new lines at end of update session
+                    nextLineStart = updateSession.end;
+                    if (this.timeline_update_session > 0) {
+                        endPointer = this.model.sessions[this.timeline_update_session - 1].start;
+                    }
+                    else {
+                        endPointer = this.log_box.Document.ContentEnd;
+                    }
+                    needTail = false;
+                    firstTail = true;
+                }
                 string line = new TextRange(lineStart, lineEnd).Text.TrimEnd();
-                Match match = SESSION_EXP.Match(line);
+                Match match;
+                if (curLine is not null) {
+                    // we had an entry line before; extend it if this is a continuation...
+                    match = SESSION_ENTRY_CONTINUATION_EXP.Match(line);
+                    if (match.Success) {
+                        curLine += " " + match.Groups["continuation"];
+                        continue;
+                    }
+                    // ...or process it if this isn't a continuation
+                    curSession.events.AddRange(LogEvent.parse(new LogReference(curLine, curLineStart, lineEnd)));
+                    curLine = null;
+                }
+                match = SESSION_EXP.Match(line);
                 if (match.Success) {
                     if (needStart) {
                         if (prevLine is not null) {
@@ -173,6 +238,11 @@ namespace CampaignLogger {
                             this.model.timeline_section_start = prevLine.GetNextInsertionPosition(LogicalDirection.Backward);
                         }
                         needStart = false;
+                    }
+                    if ((inTail) && (curSession == updateSession)) {
+                        // session(s) added earlier than update session; we'll have to roll back as if update session were dirty
+                        this.timeline_update_session_dirty = true;
+                        sessions.Add(updateSession);
                     }
                     curSession = new SessionRecord(
                         int.Parse(match.Groups["id"].Value),
@@ -190,8 +260,10 @@ namespace CampaignLogger {
                 if ((curSession is null) || (line == "")) {
                     continue;
                 }
-                if (SESSION_ENTRY_PREFIX_EXP.IsMatch(line)) {
-                    //TODO: handle log line
+                match = SESSION_ENTRY_EXP.Match(line);
+                if (match.Success) {
+                    curLine = match.Groups["line"].Value;
+                    curLineStart = lineStart;
                     // update session end, making sure it has left-affinity so it stays exactly after newline at end of session content
                     curSession.end = lineEnd.GetInsertionPosition(LogicalDirection.Backward);
                     continue;
@@ -202,18 +274,33 @@ namespace CampaignLogger {
                     curSession.in_game_end = match.Groups["timestamp"].Value;
                 }
             }
-            /////
-            //
-            //TODO:
-            //  if !timeline_update_session_dirty: pick up appended lines for timeline_update_session (loop above would've stopped before session)
-            //  if rollback necessary: replace current state with copy of rollback point
-            //  traverse sessions in reverse, applying each (applying their log lines forwards)
+            // process outstanding line if we have one
+            if (curLine is not null) {
+                curSession.events.AddRange(LogEvent.parse(new LogReference(curLine, curLineStart, lineEnd)));
+            }
+            // rollback if necessary
+            int rollbackIdx = this.timeline_update_session;
+            if (!this.timeline_update_session_dirty) {
+                rollbackIdx += 1;
+            }
+            if ((rollbackIdx >= 0) && (rollbackIdx < this.model.sessions.Count)) {
+                this.model.campaign_state = this.model.sessions[rollbackIdx].start_state.copy();
+                this.model.sessions.RemoveRange(rollbackIdx, this.model.sessions.Count - rollbackIdx);
+            }
+            // apply new sessions
+            if ((!this.timeline_update_session_dirty) && (updateSession is not null)) {
+                updateSession.apply(this.model, this.model.campaign_state, updateOffset);
+            }
             sessions.Reverse();
-            this.model.sessions = sessions;
-            //
-            /////
+            this.model.sessions.AddRange(sessions);
+            foreach (SessionRecord session in sessions) {
+                session.start_state = this.model.campaign_state.copy();
+                session.apply(this.model, this.model.campaign_state);
+            }
             // update display
-            //TODO: update left panel stuff
+            //TODO: update topics list
+            this.update_party_list();
+            //TODO: update other left panel stuff
             if (this.model.sessions.Count > 0) {
                 SessionRecord lastSession = this.model.sessions[this.model.sessions.Count - 1];
                 this.timestamp_box.Content = lastSession.in_game_end;
@@ -314,6 +401,7 @@ namespace CampaignLogger {
             }
 
             //TODO: handle any outstanding autocomplete
+            //TODO: set Document.PageWidth to max line length + some buffer
 
             int playersSectionLength = int.MaxValue;
             if (this.model.players_section_end is not null) {
@@ -339,8 +427,8 @@ namespace CampaignLogger {
                 needTimelineUpdate = true;
                 for (int i = updateSession - 1; i >= 0; i--) {
                     SessionRecord session = this.model.sessions[i];
-                    int sectionOffset = this.log_box.Document.ContentStart.GetOffsetToPosition(session.start);
-                    if (change.Offset + change.AddedLength > sectionOffset) {
+                    int sessionOffset = this.log_box.Document.ContentStart.GetOffsetToPosition(session.start);
+                    if (change.Offset + change.AddedLength > sessionOffset) {
                         updateSession = i;
                         // we'll determine if this session is dirty below; for now, mark newly-minimal session as unmodified
                         updateSessionDirty = false;
@@ -361,6 +449,10 @@ namespace CampaignLogger {
             }
             if (needTimelineUpdate) {
                 // signal that we'll need an update of the timeline section once typing has stopped for a bit
+                if (this.timeline_update_due is null) {
+                    this.timeline_update_session = this.model.sessions.Count;
+                    this.timeline_update_session_dirty = false;
+                }
                 this.timeline_update_due = updateTime;
                 if (updateSession < this.timeline_update_session) {
                     // the earliest session to update is earlier than before; replace entirely with this one
