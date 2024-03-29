@@ -4,20 +4,21 @@ using System.Text.RegularExpressions;
 namespace CampaignLogger {
     public abstract class LogEvent {
         private static readonly Regex EVENT_SPLIT_EXP = new Regex(@"[.;]\s+", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
-        private static readonly Regex CHARACTER_SPLIT_EXP = new Regex(@"([,]|(and))\s+", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
+        private static readonly Regex CHARACTER_SPLIT_EXP = new Regex(@"([,]|(\s+and))\s+", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
         private const string CHARACTER_NAME = @"([^,}{@]+)|([@][^,}{@]+)|([@][{][^,}{@]+[}])";
         private static readonly string CHARACTER_LIST = $"({CHARACTER_NAME})(([,]|(and))\\s+({CHARACTER_NAME}))*";
         private static readonly string CHARACTER_SPEC = $"(?<characters>(everyone)|(everybody)|({CHARACTER_LIST}))";
+        private const string BIGNUM_SPEC = @"\d+([km]?)";
         private static readonly Regex CHARACTER_SET_EXP = new Regex(
-            $"^{CHARACTER_SPEC}\\s+(is|are) level (?<level>\\d+)( with (?<xp>\\d+)\\s?xp)?$",
+            $"^{CHARACTER_SPEC}\\s+(is|are) level (?<level>\\d+)( with (?<xp>{BIGNUM_SPEC})\\s?xp)?$",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
         );
         private static readonly Regex CHARACTER_SET_XP_EXP = new Regex(
-            $"^{CHARACTER_SPEC}\\s+has (?<xp>\\d+)\\s?xp?$",
+            $"^{CHARACTER_SPEC}\\s+has (?<xp>{BIGNUM_SPEC})\\s?xp?$",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
         );
         private static readonly Regex CHARACTER_JOIN_EXP = new Regex(
-            $"^{CHARACTER_SPEC}\\s+joined( (the )?party)?( at level (?<level>\\d+))?( with (?<xp>\\d+)\\s?xp)?$",
+            $"^{CHARACTER_SPEC}\\s+joined( (the )?party)?( at level (?<level>\\d+))?( with (?<xp>{BIGNUM_SPEC})\\s?xp)?$",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
         );
         private static readonly Regex CHARACTER_ADJUST_LEVEL_EXP = new Regex(
@@ -25,7 +26,7 @@ namespace CampaignLogger {
             RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
         );
         private static readonly Regex CHARACTER_ADJUST_XP_EXP = new Regex(
-            $"^{CHARACTER_SPEC}\\s+(?<gainloss>(gained)|(lost)) (?<xp>\\d+)\\s?xp$",
+            $"^{CHARACTER_SPEC}\\s+(?<gainloss>(gained)|(lost)) (?<xp>{BIGNUM_SPEC})\\s?xp$",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
         );
         private static readonly Regex CHARACTER_DEPART_EXP = new Regex(
@@ -61,13 +62,13 @@ namespace CampaignLogger {
                     level = int.Parse(match.Groups["level"].Value);
                 }
                 if (match.Groups["xp"].Success) {
-                    xp = int.Parse(match.Groups["xp"].Value);
+                    xp = parse_bignum(match.Groups["xp"].Value);
                 }
                 return new CharacterSetEvent(reference, parse_characters(match.Groups["characters"].Value), level, xp);
             }
             match = CHARACTER_SET_XP_EXP.Match(s);
             if (match.Success) {
-                int xp = int.Parse(match.Groups["xp"].Value);
+                int xp = parse_bignum(match.Groups["xp"].Value);
                 return new CharacterSetEvent(reference, parse_characters(match.Groups["characters"].Value), 0, xp);
             }
             match = CHARACTER_ADJUST_LEVEL_EXP.Match(s);
@@ -86,7 +87,7 @@ namespace CampaignLogger {
             }
             match = CHARACTER_ADJUST_XP_EXP.Match(s);
             if (match.Success) {
-                int xp = int.Parse(match.Groups["xp"].Value);
+                int xp = parse_bignum(match.Groups["xp"].Value);
                 if (match.Groups["gainloss"].Value == "lost") {
                     xp = -xp;
                 }
@@ -110,6 +111,20 @@ namespace CampaignLogger {
                 characters.Add(chunk);
             }
             return characters;
+        }
+
+        protected static int parse_bignum(string s) {
+            int multiplier = 1;
+            if ((s.EndsWith("k")) || (s.EndsWith("m"))) {
+                s = s[0..^1];
+                if (s.EndsWith("k")) {
+                    multiplier = 1000;
+                }
+                else {
+                    multiplier = 1000000;
+                }
+            }
+            return int.Parse(s) * multiplier;
         }
 
         public abstract void apply(LogModel model, CampaignState state);
