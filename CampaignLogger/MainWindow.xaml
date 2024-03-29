@@ -3,14 +3,15 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:avalon="http://icsharpcode.net/sharpdevelop/avalonedit"
         xmlns:local="clr-namespace:CampaignLogger"
         mc:Ignorable="d"
-        Title="Campaign Logger" Width="1500" Height="800">
+        Title="Campaign Logger" Width="1200" Height="800">
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="1*"/>
             <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="4*"/>
+            <ColumnDefinition Width="3*"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -119,33 +120,7 @@
                 </Grid>
             </GroupBox>
 
-            <RichTextBox Grid.Row="1" Grid.Column="0" Name="log_box" FontFamily="Consolas" FontSize="11.5pt"
-                         HorizontalScrollBarVisibility="Auto" TextChanged="on_log_change" KeyDown="on_log_key_down">
-                <RichTextBox.CommandBindings>
-                    <CommandBinding Command="AlignCenter" CanExecute="suppress_command"/>
-                    <CommandBinding Command="AlignJustify" CanExecute="suppress_command"/>
-                    <CommandBinding Command="AlignLeft" CanExecute="suppress_command"/>
-                    <CommandBinding Command="AlignRight" CanExecute="suppress_command"/>
-                    <CommandBinding Command="DecreaseFontSize" CanExecute="suppress_command"/>
-                    <CommandBinding Command="DecreaseIndentation" CanExecute="suppress_command"/>
-                    <CommandBinding Command="IncreaseFontSize" CanExecute="suppress_command"/>
-                    <CommandBinding Command="IncreaseIndentation" CanExecute="suppress_command"/>
-                    <CommandBinding Command="TabBackward" CanExecute="suppress_command"/>
-                    <CommandBinding Command="TabForward" CanExecute="suppress_command"/>
-                    <CommandBinding Command="ToggleBold" CanExecute="suppress_command"/>
-                    <CommandBinding Command="ToggleBullets" CanExecute="suppress_command"/>
-                    <CommandBinding Command="ToggleInsert" CanExecute="suppress_command"/>
-                    <CommandBinding Command="ToggleNumbering" CanExecute="suppress_command"/>
-                    <CommandBinding Command="ToggleSubscript" CanExecute="suppress_command"/>
-                    <CommandBinding Command="ToggleSuperscript" CanExecute="suppress_command"/>
-                    <CommandBinding Command="ToggleUnderline" CanExecute="suppress_command"/>
-                </RichTextBox.CommandBindings>
-                <RichTextBox.Resources>
-                    <Style TargetType="{x:Type Paragraph}">
-                        <Setter Property="Margin" Value="0"/>
-                    </Style>
-                </RichTextBox.Resources>
-            </RichTextBox>
+            <avalon:TextEditor Grid.Row="1" Grid.Column="0" Margin="1" Name="log_box" FontFamily="Consolas" FontSize="11.5pt"/>
         </Grid>
     </Grid>
 </Window>

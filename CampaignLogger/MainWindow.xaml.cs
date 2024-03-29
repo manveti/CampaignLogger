@@ -3,9 +3,10 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Threading;
+
+using ICSharpCode.AvalonEdit.Document;
 
 namespace CampaignLogger {
     /// <summary>
@@ -16,7 +17,7 @@ namespace CampaignLogger {
         private static readonly TimeSpan TYPING_DELAY = TimeSpan.FromSeconds(5);
 
         private static readonly Regex CHARACTER_EXP = new Regex(
-            @"^((?<player>[^:]+):)?\s+([(](?<departure>[^)]+)[)]\s+)?(?<name>[^(]+)(\s+[(](?<desc>[^)]+)[)])?$",
+            @"^((?<player>[^:]+):)?\s+([(](?<departure>[^)]+)[)]\s+)?(?<name>[^(]+?)(\s+[(](?<desc>[^)]+)[)])?$",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture
         );
         private static readonly Regex SESSION_EXP = new Regex(
@@ -63,6 +64,9 @@ namespace CampaignLogger {
             this.dispatcher_timer.Tick += this.log_update_timer_tick;
             this.party_display = new List<CharacterEntry>();
             InitializeComponent();
+            this.log_box.TextArea.Options.IndentationSize = 8;
+            this.log_box.TextArea.TextEntering += on_log_text_entering;
+            this.log_box.Document.Changing += on_log_change;
             this.party_list.ItemsSource = this.party_display;
             this.dispatcher_timer.Start();
         }
@@ -92,20 +96,15 @@ namespace CampaignLogger {
 
         private void do_players_update() {
             HashSet<string> unreferencedChars = new HashSet<string>(this.model.characters.Keys);
-            TextPointer startPointer = this.log_box.Document.ContentStart.GetNextInsertionPosition(LogicalDirection.Forward);
-            TextPointer endPointer = this.model.players_section_end;
-            if (endPointer is null) {
-                endPointer = this.log_box.Document.ContentEnd;
+            int endLine = this.log_box.Document.LineCount;
+            if ((this.model.players_section_end is not null) && (this.model.players_section_end.Line < endLine)) {
+                endLine = this.model.players_section_end.Line;
             }
             string player = null;
             bool gotEmpty = false;
-            TextPointer lineEnd;
-            for (TextPointer lineStart = startPointer; lineStart.GetOffsetToPosition(endPointer) > 0; lineStart = lineEnd) {
-                lineEnd = lineStart.GetLineStartPosition(1);
-                if (lineEnd is null) {
-                    lineEnd = endPointer;
-                }
-                string line = new TextRange(lineStart, lineEnd).Text.TrimEnd();
+            for (int i = 0; i < endLine; i++) {
+                DocumentLine lineSpec = this.log_box.Document.Lines[i];
+                string line = this.log_box.Document.GetText(lineSpec.Offset, lineSpec.Length);
                 if ((line == "") && (!gotEmpty)) {
                     // got a valid empty line; note that and move on
                     gotEmpty = true;
@@ -144,7 +143,8 @@ namespace CampaignLogger {
                 // out of valid character lines; mark end of players section if necessary then bail
                 if (player is not null) {
                     // got at least one valid character; mark end of players section at start of invalid line with right-affinity
-                    this.model.players_section_end = lineStart.GetInsertionPosition(LogicalDirection.Forward);
+                    this.model.players_section_end = this.log_box.Document.CreateAnchor(lineSpec.Offset);
+                    this.model.players_section_end.MovementType = AnchorMovementType.AfterInsertion;
                 }
                 break;
             }
@@ -159,124 +159,158 @@ namespace CampaignLogger {
             this.update_party_list();
         }
 
+        private class SessionEventRecord {
+            public SessionRecord session;
+            public List<LogEvent> events;
+
+            public SessionEventRecord(SessionRecord session) {
+                this.session = session;
+                this.events = new List<LogEvent>();
+            }
+        }
+
         private void do_timeline_update() {
-            List<SessionRecord> sessions = new List<SessionRecord>();
-            SessionRecord curSession = null, updateSession = null;
-            int updateOffset = 0;
-            TextPointer startPointer = this.model.timeline_section_start;
-            if (startPointer is null) {
-                startPointer = this.model.players_section_end;
+            List<SessionEventRecord> sessions = new List<SessionEventRecord>();
+            SessionEventRecord curSession = null;
+            SessionRecord updateSession = null;
+            int startLine = 0;
+            if (this.model.timeline_section_start is not null) {
+                startLine = this.model.timeline_section_start.Line;
             }
-            if (startPointer is null) {
-                startPointer = this.log_box.Document.ContentStart.GetNextInsertionPosition(LogicalDirection.Forward);
+            else if (this.model.players_section_end is not null) {
+                startLine = this.model.players_section_end.Line;
             }
-            TextPointer endPointer = this.log_box.Document.ContentEnd;
+            int endLine = this.log_box.Document.LineCount;
             if (this.timeline_update_session < this.model.sessions.Count) {
                 updateSession = this.model.sessions[this.timeline_update_session];
-                updateOffset = updateSession.events.Count;
                 if (!this.timeline_update_session_dirty) {
-                    // end before start of clean session's lines; we'll need to pick up the new lines to append after
-                    endPointer = updateSession.start;
+                    // update session is clean; end before start of update session and we'll need to pick up the new lines to append after
+                    endLine = updateSession.start.Line;
                 }
                 else if (this.timeline_update_session > 0) {
-                    // just roll through end of dirty session
-                    endPointer = this.model.sessions[this.timeline_update_session - 1].start;
+                    // update session is dirty; end at the start of the next session
+                    endLine = this.model.sessions[this.timeline_update_session - 1].start.Line;
                 }
             }
-            TextPointer prevLine = null, lineEnd = null, nextLineStart;
-            bool needStart = (this.model.timeline_section_start is null);
+            int nextLine, prevLineOffset = -1;
             string curLine = null;
-            TextPointer curLineStart = null;
+            int curLineStart = -1, curLineEnd = -1;
+            bool needStart = (this.model.timeline_section_start is null);
             bool needTail = (updateSession is not null) && (!this.timeline_update_session_dirty), firstTail = false, inTail = false;
-            for (TextPointer lineStart = startPointer; lineStart.GetOffsetToPosition(endPointer) > 0; lineStart = nextLineStart) {
+            for (int i = startLine; i < endLine; i = nextLine) {
+                nextLine = i + 1;
                 if (firstTail) {
                     // first line of end of clean update session; process outstanding line if we have one
                     if (curLine is not null) {
-                        curSession.events.AddRange(LogEvent.parse(new LogReference(curLine, curLineStart, lineEnd)));
+                        TextAnchor lineStart = this.log_box.Document.CreateAnchor(curLineStart);
+                        // make sure line start has right-affinity so it stays at start of line as it currently exists
+                        lineStart.MovementType = AnchorMovementType.AfterInsertion;
+                        TextAnchor lineEnd = this.log_box.Document.CreateAnchor(curLineEnd);
+                        // make sure line end has left-affinity so it stays at end of line as it currently exists
+                        lineStart.MovementType = AnchorMovementType.BeforeInsertion;
+                        curSession.events.AddRange(LogEvent.parse(new LogReference(curLine, lineStart, lineEnd)));
                         curLine = null;
                     }
-                    curSession = updateSession;
+                    curSession = new SessionEventRecord(updateSession);
                     inTail = true;
-                    //TODO: handle continuation of final line of clean updateSession
                     firstTail = false;
                 }
-                lineEnd = lineStart.GetLineStartPosition(1);
-                if (lineEnd is null) {
-                    lineEnd = endPointer;
-                }
-                nextLineStart = lineEnd;
-                if ((needTail) && (nextLineStart.GetOffsetToPosition(endPointer) <= 0)) {
-                    // adjust start/end pointers to pick up new lines at end of update session
-                    nextLineStart = updateSession.end;
+                DocumentLine lineSpec = this.log_box.Document.Lines[i];
+                if ((needTail) && (nextLine >= endLine)) {
+                    // adjust nextLine and endLine to pick up new lines at end of otherwise-clean update session
+                    nextLine = updateSession.end.Line;
                     if (this.timeline_update_session > 0) {
-                        endPointer = this.model.sessions[this.timeline_update_session - 1].start;
+                        endLine = this.model.sessions[this.timeline_update_session - 1].start.Line;
                     }
                     else {
-                        endPointer = this.log_box.Document.ContentEnd;
+                        endLine = this.log_box.Document.LineCount;
                     }
                     needTail = false;
                     firstTail = true;
                 }
-                string line = new TextRange(lineStart, lineEnd).Text.TrimEnd();
+                string line = this.log_box.Document.GetText(lineSpec.Offset, lineSpec.Length);
                 Match match;
                 if (curLine is not null) {
                     // we had an entry line before; extend it if this is a continuation...
                     match = SESSION_ENTRY_CONTINUATION_EXP.Match(line);
                     if (match.Success) {
                         curLine += " " + match.Groups["continuation"];
+                        curLineEnd = lineSpec.EndOffset;
                         continue;
                     }
                     // ...or process it if this isn't a continuation
-                    curSession.events.AddRange(LogEvent.parse(new LogReference(curLine, curLineStart, lineEnd)));
+                    TextAnchor lineStart = this.log_box.Document.CreateAnchor(curLineStart);
+                    // make sure line start has right-affinity so it stays at start of line as it currently exists
+                    lineStart.MovementType = AnchorMovementType.AfterInsertion;
+                    TextAnchor lineEnd = this.log_box.Document.CreateAnchor(curLineEnd);
+                    // make sure line end has left-affinity so it stays at end of line as it currently exists
+                    lineStart.MovementType = AnchorMovementType.BeforeInsertion;
+                    curSession.events.AddRange(LogEvent.parse(new LogReference(curLine, lineStart, lineEnd)));
                     curLine = null;
                 }
                 match = SESSION_EXP.Match(line);
                 if (match.Success) {
                     if (needStart) {
-                        if (prevLine is not null) {
+                        // we haven't yet noted the start of the timeline session; do so now if possible
+                        if (prevLineOffset >= 0) {
                             // record start of timeline section as just before previous (blank) line with left-affinity
-                            this.model.timeline_section_start = prevLine.GetNextInsertionPosition(LogicalDirection.Backward);
+                            this.model.timeline_section_start = this.log_box.Document.CreateAnchor(prevLineOffset);
+                            this.model.timeline_section_start.MovementType = AnchorMovementType.BeforeInsertion;
                         }
                         needStart = false;
                     }
-                    if ((inTail) && (curSession == updateSession)) {
+                    if ((inTail) && (curSession.session == updateSession)) {
                         // session(s) added earlier than update session; we'll have to roll back as if update session were dirty
                         this.timeline_update_session_dirty = true;
-                        sessions.Add(updateSession);
+                        sessions.Add(curSession);
                     }
-                    curSession = new SessionRecord(
+                    TextAnchor sessionStart = this.log_box.Document.CreateAnchor(lineSpec.Offset);
+                    // make sure session start has right-affinity so it stays at start of session header
+                    sessionStart.MovementType = AnchorMovementType.AfterInsertion;
+                    TextAnchor sessionEnd = this.log_box.Document.CreateAnchor(lineSpec.EndOffset + lineSpec.DelimiterLength);
+                    // make sure session end has left-affinity so it stays exactly after newline at end of session content
+                    sessionEnd.MovementType = AnchorMovementType.BeforeInsertion;
+                    SessionRecord session = new SessionRecord(
                         int.Parse(match.Groups["id"].Value),
                         match.Groups["relative"].Success,
                         match.Groups["date"].Value,
-                        // make sure session start has right-affinity so it stays at start of session header
-                        lineStart.GetInsertionPosition(LogicalDirection.Forward),
-                        // make sure session end has left-affinity so it stays exactly after newline at end of session content
-                        lineEnd.GetInsertionPosition(LogicalDirection.Backward)
+                        sessionStart,
+                        sessionEnd
                     );
+                    curSession = new SessionEventRecord(session);
                     sessions.Add(curSession);
                     continue;
                 }
-                prevLine = lineStart;
+                prevLineOffset = lineSpec.Offset;
                 if ((curSession is null) || (line == "")) {
                     continue;
                 }
                 match = SESSION_ENTRY_EXP.Match(line);
                 if (match.Success) {
                     curLine = match.Groups["line"].Value;
-                    curLineStart = lineStart;
+                    curLineStart = lineSpec.Offset;
+                    curLineEnd = lineSpec.EndOffset;
                     // update session end, making sure it has left-affinity so it stays exactly after newline at end of session content
-                    curSession.end = lineEnd.GetInsertionPosition(LogicalDirection.Backward);
+                    curSession.session.end = this.log_box.Document.CreateAnchor(lineSpec.EndOffset + lineSpec.DelimiterLength);
+                    curSession.session.end.MovementType = AnchorMovementType.BeforeInsertion;
                     continue;
                 }
                 match = SESSION_IN_GAME_TIMESTAMP_EXP.Match(line);
                 if (match.Success) {
                     // update session in-game end timestamp
-                    curSession.in_game_end = match.Groups["timestamp"].Value;
+                    curSession.session.in_game_end = match.Groups["timestamp"].Value;
+                    continue;
                 }
             }
             // process outstanding line if we have one
             if (curLine is not null) {
-                curSession.events.AddRange(LogEvent.parse(new LogReference(curLine, curLineStart, lineEnd)));
+                TextAnchor lineStart = this.log_box.Document.CreateAnchor(curLineStart);
+                // make sure line start has right-affinity so it stays at start of line as it currently exists
+                lineStart.MovementType = AnchorMovementType.AfterInsertion;
+                TextAnchor lineEnd = this.log_box.Document.CreateAnchor(curLineEnd);
+                // make sure line end has left-affinity so it stays at end of line as it currently exists
+                lineStart.MovementType = AnchorMovementType.BeforeInsertion;
+                curSession.events.AddRange(LogEvent.parse(new LogReference(curLine, lineStart, lineEnd)));
             }
             // rollback if necessary
             int rollbackIdx = this.timeline_update_session;
@@ -288,14 +322,13 @@ namespace CampaignLogger {
                 this.model.sessions.RemoveRange(rollbackIdx, this.model.sessions.Count - rollbackIdx);
             }
             // apply new sessions
-            if ((!this.timeline_update_session_dirty) && (updateSession is not null)) {
-                updateSession.apply(this.model, this.model.campaign_state, updateOffset);
-            }
             sessions.Reverse();
-            this.model.sessions.AddRange(sessions);
-            foreach (SessionRecord session in sessions) {
-                session.start_state = this.model.campaign_state.copy();
-                session.apply(this.model, this.model.campaign_state);
+            foreach (SessionEventRecord session in sessions) {
+                session.session.start_state = this.model.campaign_state.copy();
+                this.model.sessions.Add(session.session);
+                foreach (LogEvent evt in session.events) {
+                    evt.apply(this.model, this.model.campaign_state);
+                }
             }
             // update display
             //TODO: update topics list
@@ -358,13 +391,12 @@ namespace CampaignLogger {
                 this.timeline_update_due = null;
                 this.do_timeline_update();
             }
-            TextPointer insertPoint = this.log_box.Document.ContentEnd.GetInsertionPosition(LogicalDirection.Forward);
-            int sessionId = 1;
+            int insertPoint = this.log_box.Document.TextLength, sessionId = 1;
             string relative = "";
             string inGameTimestamp = null;
             if (this.model.sessions.Count > 0) {
                 SessionRecord lastSession = this.model.sessions[this.model.sessions.Count - 1];
-                insertPoint = lastSession.start;
+                insertPoint = lastSession.start.Offset;
                 sessionId = lastSession.index + 1;
                 if (lastSession.is_relative) {
                     relative = "+";
@@ -372,76 +404,83 @@ namespace CampaignLogger {
                 inGameTimestamp = lastSession.in_game_end;
             }
             string date = DateTime.Today.ToString("yyyy-MM-dd");
-            insertPoint.InsertTextInRun($"s{relative}{sessionId} ({date}):");
-            insertPoint.InsertLineBreak();
+            string sessionHeader = $"s{relative}{sessionId} ({date}):{Environment.NewLine}";
             if (inGameTimestamp is not null) {
-                insertPoint.InsertTextInRun($"{inGameTimestamp} (continued):");
-                insertPoint.InsertLineBreak();
+                sessionHeader += $"{inGameTimestamp} (continued):{Environment.NewLine}";
             }
             if (this.model.sessions.Count > 0) {
-                insertPoint.InsertLineBreak();
+                sessionHeader += Environment.NewLine;
             }
+            this.log_box.Document.Insert(insertPoint, sessionHeader);
         }
 
-        private void on_log_key_down(object sender, KeyEventArgs e) {
-            //TODO: maybe only check this in timeline section
-            if ((e.Key == Key.OemSemicolon) && (e.KeyboardDevice.Modifiers.HasFlag(ModifierKeys.Shift))) {
-                // check if colon will be inserted at start of line; insert timestamp if so
-                if (this.log_box.CaretPosition.IsAtLineStartPosition) {
-                    this.log_box.CaretPosition.InsertTextInRun(DateTime.Now.ToString("HHmm"));
-                }
-            }
-            //TODO: if inserting space at start of line in players or timeline section, insert one less than necessary for line continuation
-            //TODO: start/progress autocomplete if necessary: @ (D2+Shift) for characters, # (D3+Shift) for topics
-        }
-
-        private void on_log_change(object sender, TextChangedEventArgs e) {
-            if (e.Changes.Count <= 0) {
+        private void on_log_text_entering(object sender, TextCompositionEventArgs e) {
+            if ((e.Text == ":") && (this.log_box.TextArea.Caret.Location.Column == 1)) {
+                // colon will be inserted at start of line; insert timestamp before it
+                this.log_box.Document.Insert(this.log_box.CaretOffset, DateTime.Now.ToString("HHmm"));
                 return;
             }
+            //TODO: if inserting space at start of line in players or timeline section, insert one less than necessary for line continuation
+            ////TODO: start/progress autocomplete if necessary: @ (D2+Shift) for characters, # (D3+Shift) for topics
+        }
 
-            //TODO: handle any outstanding autocomplete
-            //TODO: set Document.PageWidth to max line length + some buffer
-
-            int playersSectionLength = int.MaxValue;
-            if (this.model.players_section_end is not null) {
-                playersSectionLength = this.log_box.Document.ContentStart.GetOffsetToPosition(this.model.players_section_end);
-            }
-            int timelineSectionOffset = 0;
-            if (this.model.timeline_section_start is not null) {
-                timelineSectionOffset = this.log_box.Document.ContentStart.GetOffsetToPosition(this.model.timeline_section_start);
-            }
+        private void on_log_change(object sender, DocumentChangeEventArgs e) {
             bool needPlayersUpdate = false;
             bool needTimelineUpdate = false;
             int updateSession = this.model.sessions.Count;
             bool updateSessionDirty = false;
-            foreach (TextChange change in e.Changes) {
-                if (change.Offset < playersSectionLength) {
-                    // got a change to players section; we'll need to mark players section for update
-                    needPlayersUpdate = true;
-                }
-                if (change.Offset + change.AddedLength < timelineSectionOffset) {
-                    continue;
-                }
-                // got a change to timeline section; determine which session is the earliest in need of update
-                needTimelineUpdate = true;
-                for (int i = updateSession - 1; i >= 0; i--) {
-                    SessionRecord session = this.model.sessions[i];
-                    int sessionOffset = this.log_box.Document.ContentStart.GetOffsetToPosition(session.start);
-                    if (change.Offset + change.AddedLength > sessionOffset) {
-                        updateSession = i;
-                        // we'll determine if this session is dirty below; for now, mark newly-minimal session as unmodified
-                        updateSessionDirty = false;
-                    }
-                }
-                if (updateSession < this.model.sessions.Count) {
-                    // this change affects a valid session in need of update; determine if this change dirties it (rather than appends to it)
-                    int endOffset = this.log_box.Document.ContentStart.GetOffsetToPosition(this.model.sessions[updateSession].end);
-                    if (change.Offset < endOffset) {
-                        updateSessionDirty = true;
-                    }
+
+            if (this.model.players_section_end is not null) {
+                if ((this.model.players_section_end.IsDeleted) || (this.model.players_section_end.Offset <= 0)) {
+                    this.model.players_section_end = null;
                 }
             }
+            if (this.model.timeline_section_start is not null) {
+                if ((this.model.timeline_section_start.IsDeleted) || (this.model.timeline_section_start.Offset <= 0)) {
+                    this.model.timeline_section_start = null;
+                }
+            }
+
+            if ((this.model.players_section_end is null) || (e.Offset < this.model.players_section_end.Offset)) {
+                // got a change to players section; we'll need to mark players section for update
+                needPlayersUpdate = true;
+            }
+            int timelineSectionOffset = 0;
+            if ((this.model.timeline_section_start is not null) && (this.model.timeline_section_start.Offset > timelineSectionOffset)) {
+                timelineSectionOffset = this.model.timeline_section_start.Offset;
+            }
+            if (e.Offset + e.InsertionLength + e.RemovalLength >= timelineSectionOffset) {
+                // got a change to timeline section; determine which session is the earliest in need of update
+                needTimelineUpdate = true;
+                //TODO: ...
+            }
+
+            if (this.timeline_update_due is not null) {
+                // if there's already a pending update we can skip anything it already has covered
+                updateSession = this.timeline_update_session;
+            }
+
+            int firstCheckSession = updateSession;
+            if ((this.timeline_update_session_dirty) || (firstCheckSession >= this.model.sessions.Count)) {
+                // pending update session is already marked dirty; move on to check next session
+                firstCheckSession -= 1;
+            }
+            for (int i = firstCheckSession; i >= 0; i--) {
+                SessionRecord session = this.model.sessions[i];
+                if (e.Offset + e.RemovalLength < session.start.Offset) {
+                    break;
+                }
+                updateSession = i;
+                // we'll determine if this session is dirty below; for now, mark session as unmodified
+                updateSessionDirty = false;
+            }
+            if (updateSession < this.model.sessions.Count) {
+                // this change affects a valid session in need of update; determine if this change dirties it (rather than appends to it)
+                if (e.Offset < this.model.sessions[updateSession].end.Offset) {
+                    updateSessionDirty = true;
+                }
+            }
+
             DateTime updateTime = DateTime.Now + TYPING_DELAY;
             if (needPlayersUpdate) {
                 // signal that we'll need an update of the players section once typing has stopped for a bit
