@@ -208,8 +208,9 @@ namespace CampaignLogger {
         private void do_players_update() {
             HashSet<string> unreferencedChars = new HashSet<string>(this.model.characters.Keys);
             int endLine = this.log_box.Document.LineCount;
-            if ((this.model.players_section_end is not null) && (this.model.players_section_end.Line < endLine)) {
-                endLine = this.model.players_section_end.Line;
+            if ((this.model.players_section_end is not null) && (this.model.players_section_end.Line - 1 < endLine)) {
+                // TextAnchor line indices are 1-based
+                endLine = this.model.players_section_end.Line - 1;
             }
             string player = null;
             bool gotEmpty = false;
@@ -286,21 +287,23 @@ namespace CampaignLogger {
             SessionRecord updateSession = null;
             int startLine = 0;
             if (this.model.timeline_section_start is not null) {
-                startLine = this.model.timeline_section_start.Line;
+                // TextAnchor line indices are 1-based
+                startLine = this.model.timeline_section_start.Line - 1;
             }
             else if (this.model.players_section_end is not null) {
-                startLine = this.model.players_section_end.Line;
+                // TextAnchor line indices are 1-based
+                startLine = this.model.players_section_end.Line - 1;
             }
             int endLine = this.log_box.Document.LineCount;
             if (this.timeline_update_session < this.model.sessions.Count) {
                 updateSession = this.model.sessions[this.timeline_update_session];
                 if (!this.timeline_update_session_dirty) {
                     // update session is clean; end before start of update session and we'll need to pick up the new lines to append after
-                    endLine = updateSession.start.Line;
+                    endLine = updateSession.start.Line - 1;
                 }
                 else if (this.timeline_update_session > 0) {
                     // update session is dirty; end at the start of the next session
-                    endLine = this.model.sessions[this.timeline_update_session - 1].start.Line;
+                    endLine = this.model.sessions[this.timeline_update_session - 1].start.Line - 1;
                 }
             }
             int nextLine, prevLineOffset = -1;
@@ -329,9 +332,10 @@ namespace CampaignLogger {
                 DocumentLine lineSpec = this.log_box.Document.Lines[i];
                 if ((needTail) && (nextLine >= endLine)) {
                     // adjust nextLine and endLine to pick up new lines at end of otherwise-clean update session
-                    nextLine = updateSession.end.Line;
+                    nextLine = updateSession.end.Line - 1;
                     if (this.timeline_update_session > 0) {
-                        endLine = this.model.sessions[this.timeline_update_session - 1].start.Line;
+                        // TextAnchor line indices are 1-based
+                        endLine = this.model.sessions[this.timeline_update_session - 1].start.Line - 1;
                     }
                     else {
                         endLine = this.log_box.Document.LineCount;
@@ -678,32 +682,31 @@ namespace CampaignLogger {
             if (e.Offset + e.InsertionLength + e.RemovalLength >= timelineSectionOffset) {
                 // got a change to timeline section; determine which session is the earliest in need of update
                 needTimelineUpdate = true;
-                //TODO: ...
-            }
 
-            if (this.timeline_update_due is not null) {
-                // if there's already a pending update we can skip anything it already has covered
-                updateSession = this.timeline_update_session;
-            }
-
-            int firstCheckSession = updateSession;
-            if ((this.timeline_update_session_dirty) || (firstCheckSession >= this.model.sessions.Count)) {
-                // pending update session is already marked dirty; move on to check next session
-                firstCheckSession -= 1;
-            }
-            for (int i = firstCheckSession; i >= 0; i--) {
-                SessionRecord session = this.model.sessions[i];
-                if (e.Offset + e.RemovalLength < session.start.Offset) {
-                    break;
+                if (this.timeline_update_due is not null) {
+                    // if there's already a pending update we can skip anything it already has covered
+                    updateSession = this.timeline_update_session;
                 }
-                updateSession = i;
-                // we'll determine if this session is dirty below; for now, mark session as unmodified
-                updateSessionDirty = false;
-            }
-            if (updateSession < this.model.sessions.Count) {
-                // this change affects a valid session in need of update; determine if this change dirties it (rather than appends to it)
-                if (e.Offset < this.model.sessions[updateSession].end.Offset) {
-                    updateSessionDirty = true;
+
+                int firstCheckSession = updateSession;
+                if ((this.timeline_update_session_dirty) || (firstCheckSession >= this.model.sessions.Count)) {
+                    // pending update session is already marked dirty; move on to check next session
+                    firstCheckSession -= 1;
+                }
+                for (int i = firstCheckSession; i >= 0; i--) {
+                    SessionRecord session = this.model.sessions[i];
+                    if (e.Offset + e.RemovalLength < session.start.Offset) {
+                        break;
+                    }
+                    updateSession = i;
+                    // we'll determine if this session is dirty below; for now, mark session as unmodified
+                    updateSessionDirty = false;
+                }
+                if (updateSession < this.model.sessions.Count) {
+                    // this change affects a valid session in need of update; determine if this change dirties it (rather than appends to it)
+                    if (e.Offset < this.model.sessions[updateSession].end.Offset) {
+                        updateSessionDirty = true;
+                    }
                 }
             }
 
