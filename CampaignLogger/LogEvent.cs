@@ -5,9 +5,13 @@ namespace CampaignLogger {
     public abstract class LogEvent {
         private static readonly Regex EVENT_SPLIT_EXP = new Regex(@"[.;]\s+", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
         private static readonly Regex CHARACTER_SPLIT_EXP = new Regex(@"([,]|(\s+and))\s+", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
+        private const string CHARACTER_WILDCARD = "(everyone)|(everybody)";
         private const string CHARACTER_NAME = @"([^,}{@]+)|([@][^,}{@]+)|([@][{][^,}{@]+[}])";
         private static readonly string CHARACTER_LIST = $"({CHARACTER_NAME})(([,]|(and))\\s+({CHARACTER_NAME}))*";
-        private static readonly string CHARACTER_SPEC = $"(?<characters>(everyone)|(everybody)|({CHARACTER_LIST}))";
+        private static readonly string CHARACTER_SPEC = $"(?<characters>{CHARACTER_WILDCARD}|({CHARACTER_LIST}))";
+        private static readonly Regex CHARACTER_WILDCARD_EXP = new Regex(
+            CHARACTER_WILDCARD, RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
+        );
         private const string BIGNUM_SPEC = @"\d+([km]?)";
         private static readonly Regex CHARACTER_SET_EXP = new Regex(
             $"^{CHARACTER_SPEC}\\s+(is|are) level (?<level>\\d+)( with (?<xp>{BIGNUM_SPEC})\\s?xp)?$",
@@ -108,6 +112,10 @@ namespace CampaignLogger {
                 if (trimmed == "") {
                     continue;
                 }
+                if (CHARACTER_WILDCARD_EXP.IsMatch(chunk)) {
+                    // got a wildcard ("everyone" or "everybody"); return null for "all current characters"
+                    return null;
+                }
                 characters.Add(chunk);
             }
             return characters;
@@ -116,13 +124,13 @@ namespace CampaignLogger {
         protected static int parse_bignum(string s) {
             int multiplier = 1;
             if ((s.EndsWith("k")) || (s.EndsWith("m"))) {
-                s = s[0..^1];
                 if (s.EndsWith("k")) {
                     multiplier = 1000;
                 }
                 else {
                     multiplier = 1000000;
                 }
+                s = s[0..^1];
             }
             return int.Parse(s) * multiplier;
         }
