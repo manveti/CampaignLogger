@@ -33,6 +33,8 @@ namespace CampaignLogger {
             @"^(?<timestamp>.+?)(\s+[(]continued[)])?:$", RegexOptions.Compiled | RegexOptions.ExplicitCapture
         );
 
+        //TODO: TopicEntry
+
         private class CharacterEntry {
             private string _name;
             private string _level;
@@ -49,13 +51,53 @@ namespace CampaignLogger {
             }
         }
 
+        //TODO: display types for inventory, events, tasks
+
+        private class SessionEntry {
+            private SessionRecord _session;
+            private string _index;
+            private string _date;
+
+            public SessionRecord session => this._session;
+            public string index => this._index;
+            public string date => this._date;
+
+            public SessionEntry(SessionRecord session) {
+                this._session = session;
+                this._index = (session.is_relative ? "+" : "") + session.index.ToString();
+                this._date = session.date;
+            }
+        }
+
+        private class ReferenceEntry {
+            public LogReference _reference;
+            private string _session;
+
+            public LogReference reference => this._reference;
+            public string session => this._session;
+            public string line => this._reference.line;
+
+            public ReferenceEntry(LogReference reference) {
+                this._reference = reference;
+                this._session = (reference.session.is_relative ? "+" : "") + reference.session.index.ToString();
+            }
+        }
+
         private LogModel model;
         private DateTime? players_update_due = null;
         private DateTime? timeline_update_due = null;
         private int timeline_update_session;
         private bool timeline_update_session_dirty;
         private DispatcherTimer dispatcher_timer;
+        //TODO: topic display
         private List<CharacterEntry> party_display;
+        //TODO: inventory, events, tasks display
+        private List<SessionEntry> sessions_display;
+        //TODO: topic info control
+        private CharacterInfoControl character_info;
+        //TODO: other info controls
+        private SessionInfoControl session_info;
+        private List<ReferenceEntry> references_display;
 
         public MainWindow() {
             this.model = new LogModel();
@@ -63,15 +105,25 @@ namespace CampaignLogger {
             this.dispatcher_timer.Interval = TYPING_POLL_INTERVAL;
             this.dispatcher_timer.Tick += this.log_update_timer_tick;
             this.party_display = new List<CharacterEntry>();
+            this.sessions_display = new List<SessionEntry>();
+            //TODO: topic info control
+            this.character_info = new CharacterInfoControl();
+            //TODO: other info controls
+            this.session_info = new SessionInfoControl();
+            this.references_display = new List<ReferenceEntry>();
             InitializeComponent();
             this.log_box.TextArea.Options.IndentationSize = 8;
-            this.log_box.TextArea.TextEntering += on_log_text_entering;
-            this.log_box.Document.Changing += on_log_change;
+            this.log_box.TextArea.TextEntering += this.on_log_text_entering;
+            this.log_box.Document.Changing += this.on_log_change;
             this.party_list.ItemsSource = this.party_display;
+            this.session_list.ItemsSource = this.sessions_display;
+            this.reference_list.ItemsSource = this.references_display;
             this.dispatcher_timer.Start();
         }
 
         private void update_party_list() {
+            string selected = this.party_list.SelectedValue as string;
+            bool selectionValid = (selected is not null) && (this.model.campaign_state.characters.ContainsKey(selected));
             HashSet<string> seenCharacters = new HashSet<string>();
             this.party_display.Clear();
             foreach (string name in this.model.campaign_state.characters.Keys) {
@@ -87,11 +139,70 @@ namespace CampaignLogger {
                     }
                     this.party_display.Add(new CharacterEntry(name));
                 }
+                if ((selected is not null) && (this.model.characters.ContainsKey(selected))) {
+                    selectionValid = true;
+                }
             }
             this.party_display.Sort((x, y) => x.name.CompareTo(y.name));
             this.party_list.Items.Refresh();
             fix_listview_column_widths(this.party_list);
-            //TODO: selection
+            if (selectionValid) {
+                this.party_list.SelectedValue = selected;
+            }
+        }
+
+        private void update_session_list() {
+            SessionRecord selected = this.session_list.SelectedValue as SessionRecord;
+            bool selectionValid = false;
+            this.sessions_display.Clear();
+            foreach (SessionRecord session in this.model.sessions) {
+                this.sessions_display.Add(new SessionEntry(session));
+                if (session == selected) {
+                    selectionValid = true;
+                }
+            }
+            this.sessions_display.Reverse();
+            this.session_list.Items.Refresh();
+            fix_listview_column_widths(this.session_list);
+            if (selectionValid) {
+                this.session_list.SelectedValue = selected;
+            }
+        }
+
+        private void update_reference_list(List<LogReference> references) {
+            this.references_display.Clear();
+            if (references is not null) {
+                foreach (LogReference entry in references) {
+                    this.references_display.Add(new ReferenceEntry(entry));
+                }
+            }
+            this.references_display.Reverse();
+            this.reference_list.Items.Refresh();
+        }
+
+        //TODO: update_topic_references
+
+        private void update_party_references() {
+            string selected = this.party_list.SelectedValue as string;
+            if ((selected is not null) && (this.model.campaign_state.characters.ContainsKey(selected))) {
+                this.update_reference_list(this.model.campaign_state.characters[selected].references);
+            }
+            else {
+                this.update_reference_list(null);
+            }
+        }
+
+        //TODO: other update_*_references
+
+        private void update_session_references() {
+            List<LogReference> references = new List<LogReference>();
+            SessionRecord selected = this.session_list.SelectedValue as SessionRecord;
+            if (selected is not null) {
+                string index = (selected.is_relative ? "+" : "") + (selected.index.ToString());
+                string line = $"s{index} ({selected.date})";
+                references.Add(new LogReference(selected, line, selected.start, selected.end));
+            }
+            this.update_reference_list(references);
         }
 
         private void do_players_update() {
@@ -208,7 +319,7 @@ namespace CampaignLogger {
                         TextAnchor lineEnd = this.log_box.Document.CreateAnchor(curLineEnd);
                         // make sure line end has left-affinity so it stays at end of line as it currently exists
                         lineStart.MovementType = AnchorMovementType.BeforeInsertion;
-                        curSession.events.AddRange(LogEvent.parse(new LogReference(curLine, lineStart, lineEnd)));
+                        curSession.events.AddRange(LogEvent.parse(new LogReference(curSession.session, curLine, lineStart, lineEnd)));
                         curLine = null;
                     }
                     curSession = new SessionEventRecord(updateSession);
@@ -245,7 +356,7 @@ namespace CampaignLogger {
                     TextAnchor lineEnd = this.log_box.Document.CreateAnchor(curLineEnd);
                     // make sure line end has left-affinity so it stays at end of line as it currently exists
                     lineStart.MovementType = AnchorMovementType.BeforeInsertion;
-                    curSession.events.AddRange(LogEvent.parse(new LogReference(curLine, lineStart, lineEnd)));
+                    curSession.events.AddRange(LogEvent.parse(new LogReference(curSession.session, curLine, lineStart, lineEnd)));
                     curLine = null;
                 }
                 match = SESSION_EXP.Match(line);
@@ -310,7 +421,7 @@ namespace CampaignLogger {
                 TextAnchor lineEnd = this.log_box.Document.CreateAnchor(curLineEnd);
                 // make sure line end has left-affinity so it stays at end of line as it currently exists
                 lineStart.MovementType = AnchorMovementType.BeforeInsertion;
-                curSession.events.AddRange(LogEvent.parse(new LogReference(curLine, lineStart, lineEnd)));
+                curSession.events.AddRange(LogEvent.parse(new LogReference(curSession.session, curLine, lineStart, lineEnd)));
             }
             // rollback if necessary
             int rollbackIdx = this.timeline_update_session;
@@ -334,6 +445,7 @@ namespace CampaignLogger {
             //TODO: update topics list
             this.update_party_list();
             //TODO: update other left panel stuff
+            this.update_session_list();
             if (this.model.sessions.Count > 0) {
                 SessionRecord lastSession = this.model.sessions[this.model.sessions.Count - 1];
                 this.timestamp_box.Content = lastSession.in_game_end;
@@ -346,6 +458,10 @@ namespace CampaignLogger {
         }
 
         private void log_update_timer_tick(object sender, EventArgs e) {
+            if (!this.log_box.TextArea.IsFocused) {
+                // HACK: ListView selection changes steal focus and change handler can't give it back, so periodically grab it here
+                this.log_box.TextArea.Focus();
+            }
             DateTime now = DateTime.Now;
             if ((this.players_update_due is not null) && (now >= this.players_update_due)) {
                 this.players_update_due = null;
@@ -355,6 +471,15 @@ namespace CampaignLogger {
                 this.timeline_update_due = null;
                 this.do_timeline_update();
             }
+        }
+
+        private void scroll_to(int offset) {
+            this.log_box.TextArea.Caret.Offset = offset;
+            this.log_box.TextArea.Caret.BringCaretToView();
+        }
+
+        private void scroll_to(TextAnchor loc) {
+            this.scroll_to(loc.Offset);
         }
 
         //TODO: menu handlers
@@ -370,15 +495,111 @@ namespace CampaignLogger {
             }
         }
 
+        //TODO: topics tab selected
+
+        private void party_tab_selected(object sender, RoutedEventArgs e) {
+            if (sender is not TabItem) {
+                return;
+            }
+            this.details_tab.Content = this.character_info;
+            this.update_party_references();
+        }
+
+        //TODO: other tab selection handlers
+
+        private void session_tab_selected(object sender, RoutedEventArgs e) {
+            if (sender is not TabItem) {
+                return;
+            }
+            this.details_tab.Content = this.session_info;
+            this.update_session_references();
+        }
+
+        private static void set_optional_info_field(Label fieldLbl, Label fieldBox, string content) {
+            if (string.IsNullOrEmpty(content)) {
+                fieldLbl.Visibility = Visibility.Collapsed;
+                fieldBox.Visibility = Visibility.Collapsed;
+            }
+            else {
+                fieldLbl.Visibility = Visibility.Visible;
+                fieldBox.Content = content;
+                fieldBox.Visibility = Visibility.Visible;
+            }
+        }
+
         //TODO: topics handlers
 
         private void toggle_party_departed(object sender, RoutedEventArgs e) {
             this.update_party_list();
         }
 
-        //TODO: party_list selection handler
+        private void party_list_changed(object sender, SelectionChangedEventArgs e) {
+            string selected = this.party_list.SelectedValue as string;
+            if (selected is null) {
+                this.character_info.name_box.Content = "";
+                this.character_info.player_lbl.Visibility = Visibility.Collapsed;
+                this.character_info.player_box.Visibility = Visibility.Collapsed;
+                this.character_info.level_lbl.Visibility = Visibility.Collapsed;
+                this.character_info.level_box.Visibility = Visibility.Collapsed;
+                this.character_info.xp_lbl.Visibility = Visibility.Collapsed;
+                this.character_info.xp_box.Visibility = Visibility.Collapsed;
+                this.character_info.description_lbl.Visibility = Visibility.Collapsed;
+                this.character_info.description_box.Visibility = Visibility.Collapsed;
+                this.character_info.departure_lbl.Visibility = Visibility.Collapsed;
+                this.character_info.departure_box.Visibility = Visibility.Collapsed;
+                return;
+            }
+            if (this.model.campaign_state.characters.ContainsKey(selected)) {
+                CharacterState character = this.model.campaign_state.characters[selected];
+                this.character_info.name_box.Content = selected;
+                if (character.level > 0) {
+                    this.character_info.level_lbl.Visibility = Visibility.Visible;
+                    this.character_info.level_box.Content = character.level.ToString();
+                    this.character_info.level_box.Visibility = Visibility.Visible;
+                    this.character_info.xp_lbl.Visibility = Visibility.Visible;
+                    this.character_info.xp_box.Content = character.xp.ToString();
+                    this.character_info.xp_box.Visibility = Visibility.Visible;
+                }
+                else {
+                    this.character_info.level_lbl.Visibility = Visibility.Collapsed;
+                    this.character_info.level_box.Visibility = Visibility.Collapsed;
+                    this.character_info.xp_lbl.Visibility = Visibility.Collapsed;
+                    this.character_info.xp_box.Visibility = Visibility.Collapsed;
+                }
+            }
+            if (this.model.characters.ContainsKey(selected)) {
+                CharacterExtraInfo character = this.model.characters[selected];
+                this.character_info.name_box.Content = selected;
+                set_optional_info_field(this.character_info.player_lbl, this.character_info.player_box, character.player);
+                set_optional_info_field(this.character_info.description_lbl, this.character_info.description_box, character.description);
+                set_optional_info_field(this.character_info.departure_lbl, this.character_info.departure_box, character.departure);
+            }
+            this.update_party_references();
+        }
 
-        //TODO: inventory handlers, events handlers, tasks handlers, sessions handlers
+        //TODO: inventory handlers, events handlers, tasks handlers handlers
+
+        private void session_list_changed(object sender, SelectionChangedEventArgs e) {
+            SessionRecord selected = this.session_list.SelectedValue as SessionRecord;
+            if (selected is not null) {
+                this.session_info.index_box.Content = (selected.is_relative ? "+" : "") + (selected.index.ToString());
+                this.session_info.date_box.Content = selected.date;
+            }
+            else {
+                this.session_info.index_box.Content = "";
+                this.session_info.date_box.Content = "";
+            }
+            this.update_session_references();
+        }
+
+        private void reference_list_changed(object sender, SelectionChangedEventArgs e) {
+            LogReference selected = this.reference_list.SelectedValue as LogReference;
+            if (selected is null) {
+                return;
+            }
+            this.reference_list.UnselectAll();
+            this.scroll_to(selected.start);
+        }
 
         private void suppress_command(object sender, CanExecuteRoutedEventArgs e) {
             e.CanExecute = false;
@@ -405,13 +626,18 @@ namespace CampaignLogger {
             }
             string date = DateTime.Today.ToString("yyyy-MM-dd");
             string sessionHeader = $"s{relative}{sessionId} ({date}):{Environment.NewLine}";
+            int newlines = 1;
             if (inGameTimestamp is not null) {
                 sessionHeader += $"{inGameTimestamp} (continued):{Environment.NewLine}";
             }
             if (this.model.sessions.Count > 0) {
                 sessionHeader += Environment.NewLine;
+                newlines += 1;
             }
+            int headerLen = sessionHeader.Length - (newlines * Environment.NewLine.Length);
             this.log_box.Document.Insert(insertPoint, sessionHeader);
+            this.scroll_to(insertPoint + headerLen);
+            this.log_box.TextArea.Focus();
         }
 
         private void on_log_text_entering(object sender, TextCompositionEventArgs e) {

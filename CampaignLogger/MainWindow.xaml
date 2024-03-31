@@ -35,7 +35,7 @@
                     <!--TODO: topics list-->
                 </TabItem>
 
-                <TabItem Header="Party">
+                <TabItem Header="Party" Selector.Selected="party_tab_selected">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -48,7 +48,7 @@
                         <CheckBox Grid.Row="0" Grid.Column="0" Margin="1" Name="party_departed_box" Content="Show Departed Characters"
                                   Click="toggle_party_departed"/>
 
-                        <ListView Grid.Row="1" Grid.Column="0" Name="party_list" SelectedValuePath="name"><!--TODO: SelectionChanged-->
+                        <ListView Grid.Row="1" Grid.Column="0" Name="party_list" SelectedValuePath="name" SelectionChanged="party_list_changed">
                             <ListView.View>
                                 <GridView>
                                     <GridViewColumn Header="Name" DisplayMemberBinding="{Binding name}"/>
@@ -58,7 +58,6 @@
                             </ListView.View>
                         </ListView>
                     </Grid>
-                    <!--TODO: characters list; show/hide departed characters-->
                 </TabItem>
 
                 <TabItem Header="Inventory">
@@ -73,8 +72,15 @@
                     <!--TODO: tasks list-->
                 </TabItem>
 
-                <TabItem Header="Sessions">
-                    <!--TODO: sessions list-->
+                <TabItem Header="Sessions" Selector.Selected="session_tab_selected">
+                    <ListView Name="session_list" SelectedValuePath="session" SelectionChanged="session_list_changed">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Index" DisplayMemberBinding="{Binding index}"/>
+                                <GridViewColumn Header="Date" DisplayMemberBinding="{Binding date}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
                 </TabItem>
             </TabControl>
 
@@ -82,8 +88,15 @@
 
             <TabControl Grid.Row="2" Grid.Column="0" Margin="1">
                 <TabItem Header="Details" Name="details_tab"/><!--TODO: details stuff in code-->
-                <TabItem Header="Mentions">
-                    <!--TODO: mentions list-->
+                <TabItem Header="References">
+                    <ListView Name="reference_list" SelectedValuePath="reference" SelectionChanged="reference_list_changed">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Session" DisplayMemberBinding="{Binding session}"/>
+                                <GridViewColumn Header="Line" DisplayMemberBinding="{Binding line}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
                 </TabItem>
             </TabControl>
         </Grid>

@@ -1,0 +1,36 @@
+﻿<UserControl x:Class="CampaignLogger.CharacterInfoControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:CampaignLogger"
+             mc:Ignorable="d" 
+             d:DesignWidth="300" d:DesignHeight="400">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Label Grid.Row="0" Grid.Column="0" Margin="1" Content="Name:"/>
+        <Label Grid.Row="0" Grid.Column="1" Margin="1" Name="name_box"/>
+        <Label Grid.Row="1" Grid.Column="0" Margin="1" Name="player_lbl" Visibility="Collapsed" Content="Player:"/>
+        <Label Grid.Row="1" Grid.Column="1" Margin="1" Name="player_box" Visibility="Collapsed"/>
+        <Label Grid.Row="2" Grid.Column="0" Margin="1" Name="level_lbl" Visibility="Collapsed" Content="Level:"/>
+        <Label Grid.Row="2" Grid.Column="1" Margin="1" Name="level_box" Visibility="Collapsed"/>
+        <Label Grid.Row="3" Grid.Column="0" Margin="1" Name="xp_lbl" Visibility="Collapsed" Content="XP:"/>
+        <Label Grid.Row="3" Grid.Column="1" Margin="1" Name="xp_box" Visibility="Collapsed"/>
+        <Label Grid.Row="4" Grid.Column="0" Margin="1" Name="description_lbl" Visibility="Collapsed" Content="Info:"/>
+        <Label Grid.Row="4" Grid.Column="1" Margin="1" Name="description_box" Visibility="Collapsed"/>
+        <Label Grid.Row="5" Grid.Column="0" Margin="1" Name="departure_lbl" Visibility="Collapsed" Content="Departed:"/>
+        <Label Grid.Row="5" Grid.Column="1" Margin="1" Name="departure_box" Visibility="Collapsed"/>
+    </Grid>
+</UserControl>

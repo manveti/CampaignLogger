@@ -5,11 +5,13 @@ using ICSharpCode.AvalonEdit.Document;
 
 namespace CampaignLogger {
     public class LogReference {
+        public SessionRecord session;
         public string line;
         public TextAnchor start;
         public TextAnchor end;
 
-        public LogReference(string line, TextAnchor start, TextAnchor end) {
+        public LogReference(SessionRecord session, string line, TextAnchor start, TextAnchor end) {
+            this.session = session;
             this.line = line;
             this.start = start;
             this.end = end;
