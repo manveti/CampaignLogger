@@ -29,9 +29,6 @@ namespace CampaignLogger {
         private static readonly Regex SESSION_ENTRY_CONTINUATION_EXP = new Regex(
             @"^\s+(?<continuation>.+)", RegexOptions.Compiled | RegexOptions.ExplicitCapture
         );
-        private static readonly Regex SESSION_IN_GAME_TIMESTAMP_EXP = new Regex(
-            @"^(?<timestamp>.+?)(\s+[(]continued[)])?:$", RegexOptions.Compiled | RegexOptions.ExplicitCapture
-        );
 
         //TODO: TopicEntry
 
@@ -410,10 +407,16 @@ namespace CampaignLogger {
                     curSession.session.end.MovementType = AnchorMovementType.BeforeInsertion;
                     continue;
                 }
-                match = SESSION_IN_GAME_TIMESTAMP_EXP.Match(line);
-                if (match.Success) {
+                string timestamp = this.model.match_timestamp(line);
+                if (timestamp is not null) {
                     // update session in-game end timestamp
-                    curSession.session.in_game_end = match.Groups["timestamp"].Value;
+                    TextAnchor lineStart = this.log_box.Document.CreateAnchor(lineSpec.Offset);
+                    // make sure line start has right-affinity so it stays at start of line as it currently exists
+                    lineStart.MovementType = AnchorMovementType.AfterInsertion;
+                    TextAnchor lineEnd = this.log_box.Document.CreateAnchor(lineSpec.EndOffset);
+                    // make sure line end has left-affinity so it stays at end of line as it currently exists
+                    lineStart.MovementType = AnchorMovementType.BeforeInsertion;
+                    curSession.events.Add(new TimestampEvent(new LogReference(curSession.session, line, lineStart, lineEnd), timestamp));
                     continue;
                 }
             }
@@ -442,7 +445,7 @@ namespace CampaignLogger {
                 session.session.start_state = this.model.campaign_state.copy();
                 this.model.sessions.Add(session.session);
                 foreach (LogEvent evt in session.events) {
-                    evt.apply(this.model, this.model.campaign_state);
+                    evt.apply(this.model.campaign_state);
                 }
             }
             // update display
@@ -452,7 +455,7 @@ namespace CampaignLogger {
             this.update_session_list();
             if (this.model.sessions.Count > 0) {
                 SessionRecord lastSession = this.model.sessions[this.model.sessions.Count - 1];
-                this.timestamp_box.Content = lastSession.in_game_end;
+                this.timestamp_box.Content = this.model.timestamp ?? "";
                 this.session_box.Content = (lastSession.is_relative ? "+" : "") + (lastSession.index.ToString());
             }
             else {
@@ -618,7 +621,7 @@ namespace CampaignLogger {
             }
             int insertPoint = this.log_box.Document.TextLength, sessionId = 1;
             string relative = "";
-            string inGameTimestamp = null;
+            string inGameTimestamp = this.model.timestamp;
             if (this.model.sessions.Count > 0) {
                 SessionRecord lastSession = this.model.sessions[this.model.sessions.Count - 1];
                 insertPoint = lastSession.start.Offset;
@@ -626,7 +629,6 @@ namespace CampaignLogger {
                 if (lastSession.is_relative) {
                     relative = "+";
                 }
-                inGameTimestamp = lastSession.in_game_end;
             }
             string date = DateTime.Today.ToString("yyyy-MM-dd");
             string sessionHeader = $"s{relative}{sessionId} ({date}):{Environment.NewLine}";

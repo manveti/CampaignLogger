@@ -135,22 +135,22 @@ namespace CampaignLogger {
             return int.Parse(s) * multiplier;
         }
 
-        public abstract void apply(LogModel model, CampaignState state);
+        public abstract void apply(CampaignState state);
 
-        protected static string get_full_character_name(LogModel model, CampaignState state, string name) {
+        protected static string get_full_character_name(CampaignState state, string name) {
             if ((name.StartsWith("@{")) && (name.EndsWith("}"))) {
                 name = name[2..^1];
             }
             else if (name.StartsWith("@")) {
                 name = name[1..];
             }
-            if ((model.characters.ContainsKey(name)) || (state.characters.ContainsKey(name))) {
+            if ((state.model.characters.ContainsKey(name)) || (state.characters.ContainsKey(name))) {
                 return name;
             }
             Regex exp = new Regex($"\\b{name}\\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
             int matchCount = 0;
             string nameMatch = null;
-            foreach (string charName in model.characters.Keys) {
+            foreach (string charName in state.model.characters.Keys) {
                 if (!exp.IsMatch(charName)) {
                     continue;
                 }
@@ -174,6 +174,18 @@ namespace CampaignLogger {
                 return nameMatch;
             }
             return name;
+        }
+    }
+
+    public class TimestampEvent : LogEvent {
+        public string timestamp;
+
+        public TimestampEvent(LogReference reference, string timestamp) : base(reference) {
+            this.timestamp = timestamp;
+        }
+
+        public override void apply(CampaignState state) {
+            state.timestamp = this.timestamp;
         }
     }
 
@@ -201,13 +213,13 @@ namespace CampaignLogger {
             this.xp = xp;
         }
 
-        public override void apply(LogModel model, CampaignState state) {
+        public override void apply(CampaignState state) {
             IEnumerable<string> characters = this.characters;
             if (characters is null) {
                 characters = state.characters.Keys;
             }
             foreach (string name in characters) {
-                string fullName = get_full_character_name(model, state, name);
+                string fullName = get_full_character_name(state, name);
                 if (state.characters.ContainsKey(fullName)) {
                     if (this.level > 0) {
                         state.characters[fullName].level = this.level;
@@ -238,13 +250,13 @@ namespace CampaignLogger {
             this.xp = xp;
         }
 
-        public override void apply(LogModel model, CampaignState state) {
+        public override void apply(CampaignState state) {
             IEnumerable<string> characters = this.characters;
             if (characters is null) {
                 characters = state.characters.Keys;
             }
             foreach (string name in characters) {
-                string fullName = get_full_character_name(model, state, name);
+                string fullName = get_full_character_name(state, name);
                 if (!state.characters.ContainsKey(fullName)) {
                     continue;
                 }
@@ -276,13 +288,13 @@ namespace CampaignLogger {
         // "X left the party" => CharacterDepartEvent()
         public CharacterDepartEvent(LogReference reference, HashSet<string> characters) : base(reference, characters) { }
 
-        public override void apply(LogModel model, CampaignState state) {
+        public override void apply(CampaignState state) {
             IEnumerable<string> characters = this.characters;
             if (characters is null) {
                 characters = state.characters.Keys;
             }
             foreach (string name in characters) {
-                string fullName = get_full_character_name(model, state, name);
+                string fullName = get_full_character_name(state, name);
                 if (state.characters.ContainsKey(fullName)) {
                     state.characters.Remove(fullName);
                 }
