@@ -55,9 +55,7 @@ namespace CampaignLogger {
     public class LogModel {
         public TextAnchor players_section_end;
         public TextAnchor timeline_section_start;
-        //TODO: topics
         public Dictionary<string, CharacterExtraInfo> characters;
-        //TODO: inventory, events, tasks
         public Calendar calendar;
         public List<SessionRecord> sessions;
         public CampaignState campaign_state;
@@ -65,9 +63,7 @@ namespace CampaignLogger {
         public string timestamp => this.campaign_state?.timestamp;
 
         public LogModel() {
-            //TODO: topics
             this.characters = new Dictionary<string, CharacterExtraInfo>();
-            //TODO: inventory, events, tasks
             this.sessions = new List<SessionRecord>();
             this.campaign_state = new CampaignState(this);
         }

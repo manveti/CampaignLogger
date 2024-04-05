@@ -3,15 +3,24 @@ using System.Text.RegularExpressions;
 
 namespace CampaignLogger {
     public abstract class LogEvent {
+        protected const string EVERY_CHARACTER = "__everyone__";
         private static readonly Regex EVENT_SPLIT_EXP = new Regex(@"[.;]\s+", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
+        private static readonly Regex TOPIC_EXP = new Regex(
+            @"([#](?<name>[^,;.}{# ]+))|([#][{](?<name>[^,}{#]+)[}])",
+            RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
+        );
         private static readonly Regex CHARACTER_SPLIT_EXP = new Regex(@"([,]|(\s+and))\s+", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
         private const string CHARACTER_WILDCARD = "(everyone)|(everybody)";
-        private const string CHARACTER_NAME = @"([^,}{@]+)|([@][^,}{@]+)|([@][{][^,}{@]+[}])";
-        private static readonly string CHARACTER_LIST = $"({CHARACTER_NAME})(([,]|(and))\\s+({CHARACTER_NAME}))*";
-        private static readonly string CHARACTER_SPEC = $"(?<characters>{CHARACTER_WILDCARD}|({CHARACTER_LIST}))";
         private static readonly Regex CHARACTER_WILDCARD_EXP = new Regex(
             CHARACTER_WILDCARD, RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
         );
+        private const string CHARACTER_NAME_EXPLICIT = @"([@][^,;.}{@ ]+)|([@][{][^,}{@]+[}])";
+        private static readonly string CHARACTER_NAME = $"([^,}}{{@]+)|{CHARACTER_NAME_EXPLICIT}";
+        private static readonly Regex CHARACTER_NAME_EXP = new Regex(
+            CHARACTER_NAME_EXPLICIT, RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
+        );
+        private static readonly string CHARACTER_LIST = $"({CHARACTER_NAME})(([,]|(and))\\s+({CHARACTER_NAME}))*";
+        private static readonly string CHARACTER_SPEC = $"(?<characters>{CHARACTER_WILDCARD}|({CHARACTER_LIST}))";
         private const string BIGNUM_SPEC = @"\d+([km]?)";
         private static readonly Regex CHARACTER_SET_EXP = new Regex(
             $"^{CHARACTER_SPEC}\\s+(is|are) level (?<level>\\d+)( with (?<xp>{BIGNUM_SPEC})\\s?xp)?$",
@@ -46,11 +55,54 @@ namespace CampaignLogger {
 
         public static List<LogEvent> parse(LogReference reference) {
             List<LogEvent> events = new List<LogEvent>();
+            HashSet<string> characters = new HashSet<string>(), needRefChars = new HashSet<string>();
+            HashSet<string> topics = new HashSet<string>();
+            HashSet<StateReference> stateRefs = new HashSet<StateReference>();
             foreach (string chunk in EVENT_SPLIT_EXP.Split(reference.line)) {
                 LogEvent evt = parse_event(chunk.Trim(), reference);
                 if (evt is not null) {
                     events.Add(evt);
+                    // make note of referenced characters
+                    if ((evt is CharacterEvent charEvt) && (characters is not null)) {
+                        if (charEvt.characters is null) {
+                            characters = null;
+                        }
+                        else {
+                            characters.UnionWith(charEvt.characters);
+                        }
+                    }
+                    //TODO: else if's for other state references
                 }
+            }
+            // add topic references
+            foreach (Match match in TOPIC_EXP.Matches(reference.line)) {
+                topics.Add(match.Groups["name"].Value);
+            }
+            foreach (string topic in topics) {
+                stateRefs.Add(new StateReference(StateReference.ReferenceType.Topic, topic));
+            }
+            if (characters is not null) {
+                foreach (Match match in CHARACTER_NAME_EXP.Matches(reference.line)) {
+                    string name = trim_character_name(match.Value);
+                    if (!characters.Contains(name)) {
+                        needRefChars.Add(name);
+                    }
+                    characters.Add(name);
+                }
+            }
+            if (needRefChars.Count > 0) {
+                events.Add(new CharacterReferenceEvent(reference, needRefChars));
+            }
+            if (characters is null) {
+                characters = new HashSet<string> {
+                    EVERY_CHARACTER
+                };
+            }
+            if (topics.Count > 0) {
+                foreach (string name in characters) {
+                    stateRefs.Add(new StateReference(StateReference.ReferenceType.Character, name));
+                }
+                events.Add(new TopicReferenceEvent(reference, topics, stateRefs));
             }
             return events;
         }
@@ -137,13 +189,18 @@ namespace CampaignLogger {
 
         public abstract void apply(CampaignState state);
 
-        protected static string get_full_character_name(CampaignState state, string name) {
+        protected static string trim_character_name(string name) {
             if ((name.StartsWith("@{")) && (name.EndsWith("}"))) {
-                name = name[2..^1];
+                return name[2..^1];
             }
             else if (name.StartsWith("@")) {
-                name = name[1..];
+                return name[1..];
             }
+            return name;
+        }
+
+        protected static string get_full_character_name(CampaignState state, string name) {
+            name = trim_character_name(name);
             if ((state.model.characters.ContainsKey(name)) || (state.characters.ContainsKey(name))) {
                 return name;
             }
@@ -189,12 +246,69 @@ namespace CampaignLogger {
         }
     }
 
+    public class TopicReferenceEvent : LogEvent {
+        public HashSet<string> topics;
+        public HashSet<StateReference> relations;
+
+        public TopicReferenceEvent(LogReference reference, HashSet<string> topics, HashSet<StateReference> relations) : base(reference) {
+            this.topics = topics;
+            this.relations = relations;
+        }
+
+        public override void apply(CampaignState state) {
+            HashSet<StateReference> relations = new HashSet<StateReference>();
+            foreach (StateReference stateRef in this.relations) {
+                if (stateRef.type == StateReference.ReferenceType.Character) {
+                    if (stateRef.name == EVERY_CHARACTER) {
+                        foreach (string charName in state.characters.Keys) {
+                            relations.Add(new StateReference(StateReference.ReferenceType.Character, charName));
+                        }
+                    }
+                    else {
+                        relations.Add(new StateReference(StateReference.ReferenceType.Character, get_full_character_name(state, stateRef.name)));
+                    }
+                }
+                else {
+                    relations.Add(stateRef);
+                }
+            }
+            foreach (string topic in this.topics) {
+                if (state.topics.ContainsKey(topic)) {
+                    state.topics[topic].relations.UnionWith(relations);
+                }
+                else {
+                    state.topics[topic] = new TopicState(relations);
+                }
+                // remove self-reference
+                state.topics[topic].relations.Remove(new StateReference(StateReference.ReferenceType.Topic, topic));
+                state.topics[topic].references.Add(this.reference);
+            }
+        }
+    }
+
     public abstract class CharacterEvent : LogEvent {
         // base class for events which operate on one or more characters; characters null => all current party
         public HashSet<string> characters;
 
         public CharacterEvent(LogReference reference, HashSet<string> characters) : base(reference) {
             this.characters = characters;
+        }
+    }
+
+    public class CharacterReferenceEvent : CharacterEvent {
+        public CharacterReferenceEvent(LogReference reference, HashSet<string> characters) : base(reference, characters) { }
+
+        public override void apply(CampaignState state) {
+            IEnumerable<string> characters = this.characters;
+            if (characters is null) {
+                characters = state.characters.Keys;
+            }
+            foreach (string name in characters) {
+                string fullName = get_full_character_name(state, name);
+                if (state.characters.ContainsKey(fullName)) {
+                    state.characters[fullName].references.Add(this.reference);
+                }
+            }
         }
     }
 

@@ -30,8 +30,6 @@ namespace CampaignLogger {
             @"^\s+(?<continuation>.+)", RegexOptions.Compiled | RegexOptions.ExplicitCapture
         );
 
-        //TODO: TopicEntry
-
         private class CharacterEntry {
             private string _name;
             private string _level;
@@ -86,11 +84,11 @@ namespace CampaignLogger {
         private int timeline_update_session;
         private bool timeline_update_session_dirty;
         private DispatcherTimer dispatcher_timer;
-        //TODO: topic display
+        private List<string> topics_display;
         private List<CharacterEntry> party_display;
         //TODO: inventory, events, tasks display
         private List<SessionEntry> sessions_display;
-        //TODO: topic info control
+        private TopicInfoControl topic_info;
         private CharacterInfoControl character_info;
         //TODO: other info controls
         private SessionInfoControl session_info;
@@ -101,9 +99,11 @@ namespace CampaignLogger {
             this.dispatcher_timer = new DispatcherTimer();
             this.dispatcher_timer.Interval = TYPING_POLL_INTERVAL;
             this.dispatcher_timer.Tick += this.log_update_timer_tick;
+            this.topics_display = new List<string>();
             this.party_display = new List<CharacterEntry>();
+            //TODO: inventory, events, tasks display
             this.sessions_display = new List<SessionEntry>();
-            //TODO: topic info control
+            this.topic_info = new TopicInfoControl(this);
             this.character_info = new CharacterInfoControl();
             //TODO: other info controls
             this.session_info = new SessionInfoControl();
@@ -112,10 +112,24 @@ namespace CampaignLogger {
             this.log_box.TextArea.Options.IndentationSize = 8;
             this.log_box.TextArea.TextEntering += this.on_log_text_entering;
             this.log_box.Document.Changing += this.on_log_change;
+            this.topic_list.ItemsSource = this.topics_display;
             this.party_list.ItemsSource = this.party_display;
+            //TODO: inventory, events, tasks display
             this.session_list.ItemsSource = this.sessions_display;
             this.reference_list.ItemsSource = this.references_display;
             this.dispatcher_timer.Start();
+        }
+
+        private void update_topic_list() {
+            string selected = this.topic_list.SelectedValue as string;
+            bool selectionValid = (selected is not null) && (this.model.campaign_state.topics.ContainsKey(selected));
+            this.topics_display.Clear();
+            this.topics_display.AddRange(this.model.campaign_state.topics.Keys);
+            this.topics_display.Sort();
+            this.topic_list.Items.Refresh();
+            if (selectionValid) {
+                this.topic_list.SelectedValue = selected;
+            }
         }
 
         private void update_party_list() {
@@ -148,6 +162,8 @@ namespace CampaignLogger {
             }
         }
 
+        //TODO: update inventory, events, tasks list
+
         private void update_session_list() {
             SessionRecord selected = this.session_list.SelectedValue as SessionRecord;
             bool selectionValid = false;
@@ -177,7 +193,15 @@ namespace CampaignLogger {
             this.reference_list.Items.Refresh();
         }
 
-        //TODO: update_topic_references
+        private void update_topic_references() {
+            string selected = this.topic_list.SelectedValue as string;
+            if ((selected is not null) && (this.model.campaign_state.topics.ContainsKey(selected))) {
+                this.update_reference_list(this.model.campaign_state.topics[selected].references);
+            }
+            else {
+                this.update_reference_list(null);
+            }
+        }
 
         private void update_party_references() {
             string selected = this.party_list.SelectedValue as string;
@@ -449,7 +473,7 @@ namespace CampaignLogger {
                 }
             }
             // update display
-            //TODO: update topics list
+            this.update_topic_list();
             this.update_party_list();
             //TODO: update other left panel stuff
             this.update_session_list();
@@ -502,7 +526,13 @@ namespace CampaignLogger {
             }
         }
 
-        //TODO: topics tab selected
+        private void topics_tab_selected(object sender, RoutedEventArgs e) {
+            if (sender is not TabItem) {
+                return;
+            }
+            this.details_tab.Content = this.topic_info;
+            this.update_topic_references();
+        }
 
         private void party_tab_selected(object sender, RoutedEventArgs e) {
             if (sender is not TabItem) {
@@ -522,6 +552,20 @@ namespace CampaignLogger {
             this.update_session_references();
         }
 
+        public void select_entry(StateReference.ReferenceType type, string name) {
+            switch (type) {
+            case StateReference.ReferenceType.Topic:
+                this.topics_tab.IsSelected = true;
+                this.topic_list.SelectedValue = name;
+                break;
+            case StateReference.ReferenceType.Character:
+                this.party_tab.IsSelected = true;
+                this.party_list.SelectedValue = name;
+                break;
+            }
+            //TODO: other reference types
+        }
+
         private static void set_optional_info_field(Label fieldLbl, Label fieldBox, string content) {
             if (string.IsNullOrEmpty(content)) {
                 fieldLbl.Visibility = Visibility.Collapsed;
@@ -534,7 +578,22 @@ namespace CampaignLogger {
             }
         }
 
-        //TODO: topics handlers
+        private void topic_list_changed(object sender, SelectionChangedEventArgs e) {
+            string selected = this.topic_list.SelectedValue as string;
+            if (selected is null) {
+                this.topic_info.topic_box.Content = "";
+                this.topic_info.relation_list.Items.Clear();
+            }
+            if (this.model.campaign_state.topics.ContainsKey(selected)) {
+                TopicState topic = this.model.campaign_state.topics[selected];
+                this.topic_info.topic_box.Content = selected;
+                List<StateReference> relations = new List<StateReference>(topic.relations);
+                relations.Sort();
+                this.topic_info.relation_list.ItemsSource = relations;
+            }
+            fix_listview_column_widths(this.topic_info.relation_list);
+            this.update_topic_references();
+        }
 
         private void toggle_party_departed(object sender, RoutedEventArgs e) {
             this.update_party_list();

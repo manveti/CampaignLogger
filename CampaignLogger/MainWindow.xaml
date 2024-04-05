@@ -31,11 +31,11 @@
             </Grid.RowDefinitions>
 
             <TabControl Grid.Row="0" Grid.Column="0" Margin="1">
-                <TabItem Header="Topics">
-                    <!--TODO: topics list-->
+                <TabItem Header="Topics" Name="topics_tab" Selector.Selected="topics_tab_selected">
+                    <ListBox Name="topic_list" SelectionChanged="topic_list_changed"/>
                 </TabItem>
 
-                <TabItem Header="Party" Selector.Selected="party_tab_selected">
+                <TabItem Header="Party" Name="party_tab" Selector.Selected="party_tab_selected">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -60,19 +60,19 @@
                     </Grid>
                 </TabItem>
 
-                <TabItem Header="Inventory">
+                <TabItem Header="Inventory" Name="inventory_tab">
                     <!--TODO: inventory list/tree/???-->
                 </TabItem>
 
-                <TabItem Header="Events">
+                <TabItem Header="Events" Name="events_tab">
                     <!--TODO: events list-->
                 </TabItem>
 
-                <TabItem Header="Tasks">
+                <TabItem Header="Tasks" Name="tasks_tab">
                     <!--TODO: tasks list-->
                 </TabItem>
 
-                <TabItem Header="Sessions" Selector.Selected="session_tab_selected">
+                <TabItem Header="Sessions" Name="sessions_tab" Selector.Selected="session_tab_selected">
                     <ListView Name="session_list" SelectedValuePath="session" SelectionChanged="session_list_changed">
                         <ListView.View>
                             <GridView>
