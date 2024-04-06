@@ -6,7 +6,9 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 
+using ICSharpCode.AvalonEdit.CodeCompletion;
 using ICSharpCode.AvalonEdit.Document;
+using ICSharpCode.AvalonEdit.Editing;
 
 namespace CampaignLogger {
     /// <summary>
@@ -16,6 +18,12 @@ namespace CampaignLogger {
         private static readonly TimeSpan TYPING_POLL_INTERVAL = TimeSpan.FromMilliseconds(500);
         private static readonly TimeSpan TYPING_DELAY = TimeSpan.FromSeconds(5);
 
+        private static readonly Regex TOKEN_END_EXP = new Regex(
+            @"^[\s,;]?$", RegexOptions.Compiled | RegexOptions.ExplicitCapture
+        );
+        private static readonly Regex TOKEN_SPLIT_EXP = new Regex(
+            @"[\s,;]", RegexOptions.Compiled | RegexOptions.ExplicitCapture
+        );
         private static readonly Regex CHARACTER_EXP = new Regex(
             @"^((?<player>[^:]+):)?\s+([(](?<departure>[^)]+)[)]\s+)?(?<name>[^(]+?)(\s+[(](?<desc>[^)]+)[)])?$",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture
@@ -78,6 +86,38 @@ namespace CampaignLogger {
             }
         }
 
+        private class CompletionEntry : ICompletionData {
+            public const double PRIORITY_DEFAULT = 5;
+            public const double PRIORITY_LOW = 1;
+
+            private string _text;
+            private string _content;
+            private double _priority;
+
+            public string Text {
+                get => this._text;
+                set => this._text = value;
+            }
+            public object Content => this._content;
+            public object Description => this._content;
+            public double Priority => this._priority;
+            public System.Windows.Media.ImageSource Image => null;
+
+            public CompletionEntry(string text, double priority = PRIORITY_DEFAULT) {
+                this._text = text;
+                this._content = text;
+                this._priority = priority;
+            }
+
+            public void Complete(TextArea textArea, ISegment completionSegment, EventArgs insertionRequestEventArgs) {
+                string repl = this._text;
+                if ((TOKEN_SPLIT_EXP.IsMatch(repl)) && (!repl.StartsWith("{"))) {
+                    repl = "{" + repl + "}";
+                }
+                textArea.Document.Replace(completionSegment, repl);
+            }
+        }
+
         private LogModel model;
         private DateTime? players_update_due = null;
         private DateTime? timeline_update_due = null;
@@ -93,6 +133,8 @@ namespace CampaignLogger {
         //TODO: other info controls
         private SessionInfoControl session_info;
         private List<ReferenceEntry> references_display;
+        private CompletionWindow completion_window = null;
+        private bool completion_first;
 
         public MainWindow() {
             this.model = new LogModel();
@@ -111,6 +153,7 @@ namespace CampaignLogger {
             InitializeComponent();
             this.log_box.TextArea.Options.IndentationSize = 8;
             this.log_box.TextArea.TextEntering += this.on_log_text_entering;
+            this.log_box.TextArea.TextEntered += this.on_log_text_entered;
             this.log_box.Document.Changing += this.on_log_change;
             this.topic_list.ItemsSource = this.topics_display;
             this.party_list.ItemsSource = this.party_display;
@@ -706,13 +749,79 @@ namespace CampaignLogger {
         }
 
         private void on_log_text_entering(object sender, TextCompositionEventArgs e) {
+            if (this.completion_window is not null) {
+                if ((this.completion_first) && (e.Text == "{")) {
+                    foreach (CompletionEntry ent in this.completion_window.CompletionList.CompletionData) {
+                        ent.Text = "{" + ent.Text + "}";
+                    }
+                    this.completion_first = false;
+                    return;
+                }
+                this.completion_first = false;
+            }
             if ((e.Text == ":") && (this.log_box.TextArea.Caret.Location.Column == 1)) {
                 // colon will be inserted at start of line; insert timestamp before it
                 this.log_box.Document.Insert(this.log_box.CaretOffset, DateTime.Now.ToString("HHmm"));
                 return;
             }
             //TODO: if inserting space at start of line in players or timeline section, insert one less than necessary for line continuation
-            ////TODO: start/progress autocomplete if necessary: @ (D2+Shift) for characters, # (D3+Shift) for topics
+        }
+
+        private void populate_completions(IEnumerable<string> items) {
+            List<CompletionEntry> completions = new List<CompletionEntry>();
+            foreach (string item in items) {
+                completions.Add(new CompletionEntry(item));
+                string[] splits = TOKEN_SPLIT_EXP.Split(item);
+                if (splits.Length > 1) {
+                    foreach (string token in splits) {
+                        completions.Add(new CompletionEntry(token, CompletionEntry.PRIORITY_LOW));
+                    }
+                }
+            }
+            completions.Sort((x, y) => x.Text.CompareTo(y.Text));
+            foreach (CompletionEntry completion in completions) {
+                this.completion_window.CompletionList.CompletionData.Add(completion);
+            }
+        }
+
+        private void populate_topic_completions() {
+            this.populate_completions(this.model.campaign_state.topics.Keys);
+        }
+
+        private void populate_character_completions() {
+            List<string> characters = new List<string>(this.model.campaign_state.characters.Keys);
+            foreach (string name in this.model.characters.Keys) {
+                if (!this.model.campaign_state.characters.ContainsKey(name)) {
+                    characters.Add(name);
+                }
+            }
+            this.populate_completions(characters);
+        }
+
+        private void on_log_text_entered(object sender, TextCompositionEventArgs e) {
+            if (((e.Text == "#") || (e.Text == "@")) && (this.completion_window is null)) {
+                string nextChar = "";
+                if (this.log_box.CaretOffset < this.log_box.Document.TextLength) {
+                    nextChar = this.log_box.Document.GetText(this.log_box.CaretOffset, 1);
+                }
+                if (TOKEN_END_EXP.IsMatch(nextChar)) {
+                    this.completion_window = new CompletionWindow(this.log_box.TextArea);
+                    this.completion_window.Closed += (sdr, evt) => this.completion_window = null;
+                    if (e.Text == "#") {
+                        this.populate_topic_completions();
+                    }
+                    else {
+                        this.populate_character_completions();
+                    }
+                    if (this.completion_window.CompletionList.CompletionData.Count > 0) {
+                        this.completion_first = true;
+                        this.completion_window.Show();
+                    }
+                    else {
+                        this.completion_window = null;
+                    }
+                }
+            }
         }
 
         private void on_log_change(object sender, DocumentChangeEventArgs e) {
