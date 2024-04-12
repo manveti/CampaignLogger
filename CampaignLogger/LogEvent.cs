@@ -6,7 +6,7 @@ namespace CampaignLogger {
         protected const string EVERY_CHARACTER = "__everyone__";
         private static readonly Regex EVENT_SPLIT_EXP = new Regex(@"[.;]\s+", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
         private static readonly Regex TOPIC_EXP = new Regex(
-            @"([#](?<name>[^,;.}{# ]+))|([#][{](?<name>[^,}{#]+)[}])",
+            @"([#](?<name>[^][,;.}{# ]+))|([#][{](?<name>[^][,}{#]+)[}])",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
         );
         private static readonly Regex CHARACTER_SPLIT_EXP = new Regex(@"([,]|(\s+and))\s+", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
@@ -14,7 +14,7 @@ namespace CampaignLogger {
         private static readonly Regex CHARACTER_WILDCARD_EXP = new Regex(
             CHARACTER_WILDCARD, RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
         );
-        private const string CHARACTER_NAME_EXPLICIT = @"([@][^,;.}{@ ]+)|([@][{][^,}{@]+[}])";
+        private const string CHARACTER_NAME_EXPLICIT = @"([@][^][,;.}{@ 0-9][^][,;.}{@ ]*)|([@][{][^][,}{@]+[}])";
         private static readonly string CHARACTER_NAME = $"([^,}}{{@]+)|{CHARACTER_NAME_EXPLICIT}";
         private static readonly Regex CHARACTER_NAME_EXP = new Regex(
             CHARACTER_NAME_EXPLICIT, RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
@@ -58,7 +58,7 @@ namespace CampaignLogger {
             HashSet<string> characters = new HashSet<string>(), needRefChars = new HashSet<string>();
             HashSet<string> topics = new HashSet<string>();
             HashSet<StateReference> stateRefs = new HashSet<StateReference>();
-            foreach (string chunk in EVENT_SPLIT_EXP.Split(reference.line)) {
+            foreach (string chunk in LogParser.split_line(reference.line)) {
                 LogEvent evt = parse_event(chunk.Trim(), reference);
                 if (evt is not null) {
                     events.Add(evt);
