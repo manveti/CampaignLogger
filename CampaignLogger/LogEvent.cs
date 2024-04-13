@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace CampaignLogger {
@@ -44,6 +45,10 @@ namespace CampaignLogger {
         );
         private static readonly Regex CHARACTER_DEPART_EXP = new Regex(
             $"^{CHARACTER_SPEC}\\s+(departed)|(retired)|(left( (the )?party)?)$",
+            RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
+        );
+        private static readonly Regex EVENT_TIMESTAMP_EXP = new Regex(
+            @"^((in\s+(?<interval>\S.*)|((on|at)\s+)?(?<timestamp>\S.*)))$",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
         );
 
@@ -154,6 +159,13 @@ namespace CampaignLogger {
                 return new CharacterDepartEvent(reference, parse_characters(match.Groups["characters"].Value));
             }
             //TODO: handle other event types
+            MarkupFunction function = LogParser.parse_function(s);
+            if (function is not null) {
+                LogEvent evt = parse_function(reference, function);
+                if (evt is not null) {
+                    return evt;
+                }
+            }
             return null;
         }
 
@@ -185,6 +197,54 @@ namespace CampaignLogger {
                 s = s[0..^1];
             }
             return int.Parse(s) * multiplier;
+        }
+
+        protected static EventTimestamp parse_event_timestamp(string s) {
+            Match match = EVENT_TIMESTAMP_EXP.Match(s);
+            if (!match.Success) {
+                return null;
+            }
+            if (match.Groups["timestamp"].Success) {
+                return new EventTimestamp(match.Groups["timestamp"].Value, null);
+            }
+            if (match.Groups["interval"].Success) {
+                return new EventTimestamp(null, match.Groups["interval"].Value);
+            }
+            return null;
+        }
+
+        protected static LogEvent parse_function(LogReference reference, MarkupFunction function) {
+            switch (function.name) {
+            //TODO: inventory functions
+            case "event": {
+                    if (function.args.Count < 2) {
+                        return null;
+                    }
+                    string name = function.args[0];
+                    EventTimestamp timestamp = parse_event_timestamp(function.args[1]);
+                    string description = null;
+                    if (function.args.Count > 2) {
+                        StringBuilder descBuilder = new StringBuilder(function.args[2]);
+                        for (int i = 3; i < function.args.Count; i++) {
+                            descBuilder.Append("; ");
+                            descBuilder.Append(function.args[i]);
+                        }
+                        description = descBuilder.ToString();
+                    }
+                    return new EventAddEvent(reference, name, timestamp, description);
+                }
+            case "event completed":
+            case "event cleared":
+            case "event done":
+            case "event over":
+            case "event remove":
+                if (function.args.Count != 1) {
+                    return null;
+                }
+                return new EventCompletionEvent(reference, function.args[0]);
+            //TODO: task functions
+            }
+            return null;
         }
 
         public abstract void apply(CampaignState state);
@@ -415,4 +475,45 @@ namespace CampaignLogger {
             }
         }
     }
+
+    //TODO: inventory
+
+    public class EventAddEvent : LogEvent {
+        public string name;
+        public EventTimestamp timestamp;
+        public string description;
+
+        public EventAddEvent(LogReference reference, string name, EventTimestamp timestamp, string description) : base(reference) {
+            this.name = name;
+            this.timestamp = timestamp;
+            this.description = description;
+        }
+
+        public override void apply(CampaignState state) {
+            EventTimestamp timestamp = this.timestamp;
+            if (timestamp.delta is not null) {
+                timestamp = new EventTimestamp(state.timestamp, timestamp.delta);
+            }
+            if (!state.model.validate_event_timestamp(timestamp)) {
+                //TODO: log error
+                return;
+            }
+            state.events[this.name] = new EventState(timestamp, this.description);
+            state.events[this.name].references.Add(this.reference);
+        }
+    }
+
+    public class EventCompletionEvent : LogEvent {
+        public string name;
+
+        public EventCompletionEvent(LogReference reference, string name) : base(reference) {
+            this.name = name;
+        }
+
+        public override void apply(CampaignState state) {
+            state.events.Remove(this.name);
+        }
+    }
+
+    //TODO: tasks
 }

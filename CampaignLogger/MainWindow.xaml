@@ -64,8 +64,30 @@
                     <!--TODO: inventory list/tree/???-->
                 </TabItem>
 
-                <TabItem Header="Events" Name="events_tab">
-                    <!--TODO: events list-->
+                <TabItem Header="Events" Name="events_tab" Selector.Selected="events_tab_selected">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <CheckBox Grid.Row="0" Grid.Column="0" Margin="1" Name="events_past_box" Content="Show Past Events"
+                                  Click="toggle_events_past"/>
+
+                        <ListView Grid.Row="1" Grid.Column="0" x:Name="events_list"
+                                  SelectedValuePath="name" SelectionChanged="events_list_changed">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="Name" DisplayMemberBinding="{Binding name}"/>
+                                    <GridViewColumn Header="Timestamp" DisplayMemberBinding="{Binding timestamp}"/>
+                                    <GridViewColumn Header="" DisplayMemberBinding="{Binding delta}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </Grid>
                 </TabItem>
 
                 <TabItem Header="Tasks" Name="tasks_tab">

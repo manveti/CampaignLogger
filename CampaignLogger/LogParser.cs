@@ -2,9 +2,19 @@
 using System.Text.RegularExpressions;
 
 namespace CampaignLogger {
+    public class MarkupFunction {
+        public readonly string name;
+        public readonly List<string> args;
+
+        public MarkupFunction(string name, IEnumerable<string> args) {
+            this.name = name.ToLower();
+            this.args = new List<string>(args);
+        }
+    }
+
     public class LogParser {
         private const string QUOTE = "\"";
-        private static readonly Regex DEFAULT_SPLIT_EXP = new Regex(@"\s*[.;]\s*", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
+        private static readonly Regex DEFAULT_SPLIT_EXP = new Regex(@"\s*[;]\s*", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
         private static readonly Regex SECTION_OPENER_EXP = new Regex(
             @"\s*(?<opener>[""([{])\s*", RegexOptions.Compiled | RegexOptions.ExplicitCapture
         );
@@ -14,6 +24,9 @@ namespace CampaignLogger {
             ["["] = new Regex(@"\s*((?<opener>[""[])|(?<closer>[]]))\s*", RegexOptions.Compiled | RegexOptions.ExplicitCapture),
             ["{"] = new Regex(@"\s*((?<opener>[""{])|(?<closer>[}]))\s*", RegexOptions.Compiled | RegexOptions.ExplicitCapture),
         };
+        private static readonly Regex FUNCTION_EXP = new Regex(
+            @"\s*[[](?<contents>[^:]+[:][^]]+)[]]\s*", RegexOptions.Compiled | RegexOptions.ExplicitCapture
+        );
 
         public static IEnumerable<string> split_line(string s, Regex delim = null, int count = -1) {
             if (s.Length <= 0) {
@@ -79,6 +92,18 @@ namespace CampaignLogger {
 
         public static IEnumerable<string> split_line(string s, string delim, int count = -1) {
             return split_line(s, new Regex($"\\s*{delim}\\s*", RegexOptions.Compiled | RegexOptions.ExplicitCapture), count);
+        }
+
+        public static MarkupFunction parse_function(string s) {
+            Match match = FUNCTION_EXP.Match(s);
+            if (!match.Success) {
+                return null;
+            }
+            List<string> tokens = new List<string>(split_line(match.Groups["contents"].Value, ":", 1));
+            if (tokens.Count != 2) {
+                return null;
+            }
+            return new MarkupFunction(tokens[0], split_line(tokens[1]));
         }
     }
 }

@@ -82,11 +82,35 @@ namespace CampaignLogger {
         }
     }
 
+    //TODO: inventory
+
+    public class EventState {
+        public EventTimestamp timestamp;
+        public string description;
+        public List<LogReference> references;
+
+        public EventState(EventTimestamp timestamp, string description) {
+            this.timestamp = timestamp;
+            this.description = description;
+            this.references = new List<LogReference>();
+        }
+
+        public EventState copy() {
+            EventState result = new EventState(this.timestamp, this.description);
+            result.references.AddRange(this.references);
+            return result;
+        }
+    }
+
+    //TODO: tasks
+
     public class CampaignState {
         public LogModel model;
         public Dictionary<string, TopicState> topics;
         public Dictionary<string, CharacterState> characters;
-        //TODO: inventory, events, tasks
+        //TODO: inventory
+        public Dictionary<string, EventState> events;
+        //TODO: tasks
         protected string _timestamp;
 
         public string timestamp {
@@ -106,6 +130,9 @@ namespace CampaignLogger {
             this.model = model;
             this.topics = new Dictionary<string, TopicState>();
             this.characters = new Dictionary<string, CharacterState>();
+            //TODO: inventory
+            this.events = new Dictionary<string, EventState>();
+            //TODO: tasks
         }
 
         protected CampaignState(CampaignState prev) : this(prev.model) {
@@ -115,7 +142,11 @@ namespace CampaignLogger {
             foreach (string charName in prev.characters.Keys) {
                 this.characters[charName] = prev.characters[charName].copy();
             }
-            //TODO: inventory, events, tasks
+            //TODO: inventory
+            foreach (string evtName in prev.events.Keys) {
+                this.events[evtName] = prev.events[evtName].copy();
+            }
+            //TODO: tasks
             this._timestamp = prev._timestamp;
         }
 

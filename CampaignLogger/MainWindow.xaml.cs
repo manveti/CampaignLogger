@@ -37,6 +37,9 @@ namespace CampaignLogger {
         private static readonly Regex SESSION_ENTRY_CONTINUATION_EXP = new Regex(
             @"^\s+(?<continuation>.+)", RegexOptions.Compiled | RegexOptions.ExplicitCapture
         );
+        private static readonly Regex TIMESTAMP_EXP = new Regex(
+            @"^(?<timestamp>.+?)(\s+[(]continued[)])?:$", RegexOptions.Compiled | RegexOptions.ExplicitCapture
+        );
 
         private class CharacterEntry {
             private string _name;
@@ -54,7 +57,25 @@ namespace CampaignLogger {
             }
         }
 
-        //TODO: display types for inventory, events, tasks
+        //TODO: display type for inventory
+
+        private class EventEntry {
+            private string _name;
+            private string _timestamp;
+            private string _delta;
+
+            public string name => this._name;
+            public string timestamp => this._timestamp;
+            public string delta => this._delta;
+
+            public EventEntry(string name, string timestamp, string delta) {
+                this._name = name;
+                this._timestamp = timestamp;
+                this._delta = delta;
+            }
+        }
+
+        //TODO: display type for tasks
 
         private class SessionEntry {
             private SessionRecord _session;
@@ -126,11 +147,15 @@ namespace CampaignLogger {
         private DispatcherTimer dispatcher_timer;
         private List<string> topics_display;
         private List<CharacterEntry> party_display;
-        //TODO: inventory, events, tasks display
+        //TODO: inventory display
+        private List<EventEntry> events_display;
+        //TODO: tasks display
         private List<SessionEntry> sessions_display;
         private TopicInfoControl topic_info;
         private CharacterInfoControl character_info;
         //TODO: other info controls
+        private EventInfoControl event_info;
+        //TODO: task info control
         private SessionInfoControl session_info;
         private List<ReferenceEntry> references_display;
         private CompletionWindow completion_window = null;
@@ -143,11 +168,15 @@ namespace CampaignLogger {
             this.dispatcher_timer.Tick += this.log_update_timer_tick;
             this.topics_display = new List<string>();
             this.party_display = new List<CharacterEntry>();
-            //TODO: inventory, events, tasks display
+            //TODO: inventory display
+            this.events_display = new List<EventEntry>();
+            //TODO: tasks display
             this.sessions_display = new List<SessionEntry>();
             this.topic_info = new TopicInfoControl(this);
             this.character_info = new CharacterInfoControl();
             //TODO: other info controls
+            this.event_info = new EventInfoControl();
+            //TODO: task info control
             this.session_info = new SessionInfoControl();
             this.references_display = new List<ReferenceEntry>();
             InitializeComponent();
@@ -157,7 +186,9 @@ namespace CampaignLogger {
             this.log_box.Document.Changing += this.on_log_change;
             this.topic_list.ItemsSource = this.topics_display;
             this.party_list.ItemsSource = this.party_display;
-            //TODO: inventory, events, tasks display
+            //TODO: inventory display
+            this.events_list.ItemsSource = this.events_display;
+            //TODO: tasks display
             this.session_list.ItemsSource = this.sessions_display;
             this.reference_list.ItemsSource = this.references_display;
             this.dispatcher_timer.Start();
@@ -205,7 +236,39 @@ namespace CampaignLogger {
             }
         }
 
-        //TODO: update inventory, events, tasks list
+        //TODO: update inventory list
+
+        private void update_events_list() {
+            if (this.model.calendar is null) {
+                return;
+            }
+            string selected = this.events_list.SelectedValue as string;
+            bool selectionValid = (selected is not null) && (this.model.campaign_state.events.ContainsKey(selected));
+            this.events_display.Clear();
+            bool showPast = (this.events_past_box.IsChecked == true);
+            foreach (string name in this.model.campaign_state.events.Keys) {
+                EventState evt = this.model.campaign_state.events[name];
+                if ((!showPast) && (this.model.calendar.compare_timestamps(evt.timestamp, this.model.campaign_state.timestamp) < 0)) {
+                    // event timestamp is in the past; skip it
+                    continue;
+                }
+                string timestamp = this.model.calendar.format_timestamp(evt.timestamp);
+                string delta = this.model.calendar.subtract_timestamp(evt.timestamp, this.model.campaign_state.timestamp);
+                this.events_display.Add(new EventEntry(name, timestamp, delta ?? ""));
+            }
+            this.events_display.Sort(
+                (x, y) => this.model.calendar.compare_timestamps(
+                    this.model.campaign_state.events[x.name].timestamp, this.model.campaign_state.events[y.name].timestamp
+                )
+            );
+            this.events_list.Items.Refresh();
+            fix_listview_column_widths(this.events_list);
+            if (selectionValid) {
+                this.events_list.SelectedValue = selected;
+            }
+        }
+
+        //TODO: update tasks list
 
         private void update_session_list() {
             SessionRecord selected = this.session_list.SelectedValue as SessionRecord;
@@ -257,6 +320,18 @@ namespace CampaignLogger {
         }
 
         //TODO: other update_*_references
+
+        private void update_event_references() {
+            string selected = this.events_list.SelectedValue as string;
+            if ((selected is not null) && (this.model.campaign_state.events.ContainsKey(selected))) {
+                this.update_reference_list(this.model.campaign_state.events[selected].references);
+            }
+            else {
+                this.update_reference_list(null);
+            }
+        }
+        //TODO: update_event_references
+        //TODO: update_task_references
 
         private void update_session_references() {
             List<LogReference> references = new List<LogReference>();
@@ -474,17 +549,20 @@ namespace CampaignLogger {
                     curSession.session.end.MovementType = AnchorMovementType.BeforeInsertion;
                     continue;
                 }
-                string timestamp = this.model.match_timestamp(line);
-                if (timestamp is not null) {
-                    // update session in-game end timestamp
-                    TextAnchor lineStart = this.log_box.Document.CreateAnchor(lineSpec.Offset);
-                    // make sure line start has right-affinity so it stays at start of line as it currently exists
-                    lineStart.MovementType = AnchorMovementType.AfterInsertion;
-                    TextAnchor lineEnd = this.log_box.Document.CreateAnchor(lineSpec.EndOffset);
-                    // make sure line end has left-affinity so it stays at end of line as it currently exists
-                    lineStart.MovementType = AnchorMovementType.BeforeInsertion;
-                    curSession.events.Add(new TimestampEvent(new LogReference(curSession.session, line, lineStart, lineEnd), timestamp));
-                    continue;
+                match = TIMESTAMP_EXP.Match(line);
+                if (match.Success) {
+                    string timestamp = match.Groups["timestamp"].Value;
+                    if (this.model.validate_timestamp(timestamp)) {
+                        // update session in-game end timestamp
+                        TextAnchor lineStart = this.log_box.Document.CreateAnchor(lineSpec.Offset);
+                        // make sure line start has right-affinity so it stays at start of line as it currently exists
+                        lineStart.MovementType = AnchorMovementType.AfterInsertion;
+                        TextAnchor lineEnd = this.log_box.Document.CreateAnchor(lineSpec.EndOffset);
+                        // make sure line end has left-affinity so it stays at end of line as it currently exists
+                        lineStart.MovementType = AnchorMovementType.BeforeInsertion;
+                        curSession.events.Add(new TimestampEvent(new LogReference(curSession.session, line, lineStart, lineEnd), timestamp));
+                        continue;
+                    }
                 }
             }
             // process outstanding line if we have one
@@ -518,7 +596,9 @@ namespace CampaignLogger {
             // update display
             this.update_topic_list();
             this.update_party_list();
-            //TODO: update other left panel stuff
+            //TODO: update inventory list
+            this.update_events_list();
+            //TODO: update tasks list
             this.update_session_list();
             if (this.model.sessions.Count > 0) {
                 SessionRecord lastSession = this.model.sessions[this.model.sessions.Count - 1];
@@ -585,7 +665,17 @@ namespace CampaignLogger {
             this.update_party_references();
         }
 
-        //TODO: other tab selection handlers
+        //TODO: inventory_tab_selected
+
+        private void events_tab_selected(object sender, RoutedEventArgs e) {
+            if (sender is not TabItem) {
+                return;
+            }
+            this.details_tab.Content = this.event_info;
+            this.update_event_references();
+        }
+
+        //TODO: tasks_tab_selected
 
         private void session_tab_selected(object sender, RoutedEventArgs e) {
             if (sender is not TabItem) {
@@ -686,7 +776,51 @@ namespace CampaignLogger {
             this.update_party_references();
         }
 
-        //TODO: inventory handlers, events handlers, tasks handlers handlers
+        //TODO: inventory handlers
+
+        private void toggle_events_past(object sender, RoutedEventArgs e) {
+            this.update_events_list();
+        }
+
+        private void events_list_changed(object sender, SelectionChangedEventArgs e) {
+            string selected = this.events_list.SelectedValue as string;
+            if ((selected is not null) && (this.model.campaign_state.events.ContainsKey(selected))) {
+                EventState evt = this.model.campaign_state.events[selected];
+                this.event_info.name_box.Content = selected;
+                string delta = null;
+                if (this.model.calendar is not null) {
+                    this.event_info.timestamp_lbl.Visibility = Visibility.Visible;
+                    this.event_info.timestamp_box.Content = this.model.calendar.format_timestamp(evt.timestamp);
+                    this.event_info.timestamp_box.Visibility = Visibility.Visible;
+                    delta = this.model.calendar.subtract_timestamp(evt.timestamp, this.model.campaign_state.timestamp);
+                }
+                else {
+                    this.event_info.timestamp_lbl.Visibility = Visibility.Collapsed;
+                    this.event_info.timestamp_box.Visibility = Visibility.Collapsed;
+                }
+                if (delta is not null) {
+                    this.event_info.delta_lbl.Visibility = Visibility.Visible;
+                    this.event_info.delta_box.Content = delta;
+                    this.event_info.delta_box.Visibility = Visibility.Visible;
+                }
+                else {
+                    this.event_info.delta_lbl.Visibility = Visibility.Collapsed;
+                    this.event_info.delta_box.Visibility = Visibility.Collapsed;
+                }
+                this.event_info.desc_box.Text = evt.description ?? "";
+            }
+            else {
+                this.event_info.name_box.Content = "";
+                this.event_info.timestamp_lbl.Visibility = Visibility.Collapsed;
+                this.event_info.timestamp_box.Visibility = Visibility.Collapsed;
+                this.event_info.delta_lbl.Visibility = Visibility.Collapsed;
+                this.event_info.delta_box.Visibility = Visibility.Collapsed;
+                this.event_info.desc_box.Text = "";
+            }
+            this.update_event_references();
+        }
+
+        //TODO: tasks handlers handlers
 
         private void session_list_changed(object sender, SelectionChangedEventArgs e) {
             SessionRecord selected = this.session_list.SelectedValue as SessionRecord;

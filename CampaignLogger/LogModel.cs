@@ -68,14 +68,44 @@ namespace CampaignLogger {
             this.campaign_state = new CampaignState(this);
         }
 
-        public string match_timestamp(string s) {
+        public bool validate_timestamp(string s) {
+            if (s is null) {
+                return false;
+            }
             if (this.calendar is null) {
                 this.calendar = Calendar.get_calendar_from_timestamp(s);
                 if (this.calendar is null) {
-                    return null;
+                    return false;
                 }
             }
-            return this.calendar.match_timestamp(s);
+            return this.calendar.validate_timestamp(s);
+        }
+
+        public bool validate_interval(string s) {
+            if (s is null) {
+                return false;
+            }
+            if (this.calendar is null) {
+                this.calendar = Calendar.get_get_calendar_from_interval(s);
+                if (this.calendar is null) {
+                    return false;
+                }
+            }
+            return this.calendar.validate_interval(s);
+        }
+
+        public bool validate_event_timestamp(EventTimestamp ts) {
+            if ((ts is null) || ((ts.timestamp is null) && (ts.delta is null))) {
+                return false;
+            }
+            bool result = true;
+            if (ts.timestamp is not null) {
+                result = result && this.validate_timestamp(ts.timestamp);
+            }
+            if (ts.delta is not null) {
+                result = result && this.validate_interval(ts.delta);
+            }
+            return result;
         }
     }
 }
