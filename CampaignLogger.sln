@@ -5,7 +5,12 @@ VisualStudioVersion = 16.0.34601.136
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CampaignLogger", "CampaignLogger\CampaignLogger.csproj", "{BAB86888-064B-4106-92F7-7FB5537B4FBB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CampaignLoggerTests", "CampaignLoggerTests\CampaignLoggerTests.csproj", "{703EC153-E4AB-4926-B2DD-4249B8148C8C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CampaignLoggerTests", "CampaignLoggerTests\CampaignLoggerTests.csproj", "{703EC153-E4AB-4926-B2DD-4249B8148C8C}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{1040C4EA-8F34-4047-A30C-94FD1BA494CD}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
