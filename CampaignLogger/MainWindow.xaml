@@ -77,7 +77,7 @@
                         <CheckBox Grid.Row="0" Grid.Column="0" Margin="1" Name="events_past_box" Content="Show Past Events"
                                   Click="toggle_events_past"/>
 
-                        <ListView Grid.Row="1" Grid.Column="0" x:Name="events_list"
+                        <ListView Grid.Row="1" Grid.Column="0" Name="events_list"
                                   SelectedValuePath="name" SelectionChanged="events_list_changed">
                             <ListView.View>
                                 <GridView>
@@ -90,8 +90,16 @@
                     </Grid>
                 </TabItem>
 
-                <TabItem Header="Tasks" Name="tasks_tab">
-                    <!--TODO: tasks list-->
+                <TabItem Header="Tasks" Name="tasks_tab" Selector.Selected="tasks_tab_selected">
+                    <ListView Name="tasks_list" SelectedValuePath="name" SelectionChanged="tasks_list_changed">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Name" DisplayMemberBinding="{Binding name}"/>
+                                <GridViewColumn Header="Due" DisplayMemberBinding="{Binding due}"/>
+                                <GridViewColumn Header="" DisplayMemberBinding="{Binding delta}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
                 </TabItem>
 
                 <TabItem Header="Sessions" Name="sessions_tab" Selector.Selected="session_tab_selected">
@@ -109,7 +117,7 @@
             <GridSplitter Grid.Row="1" Grid.Column="0" HorizontalAlignment="Stretch" VerticalAlignment="Center" Height="5"/>
 
             <TabControl Grid.Row="2" Grid.Column="0" Margin="1">
-                <TabItem Header="Details" Name="details_tab"/><!--TODO: details stuff in code-->
+                <TabItem Header="Details" Name="details_tab"/><!--details stuff in code-->
                 <TabItem Header="References">
                     <ListView Name="reference_list" SelectedValuePath="reference" SelectionChanged="reference_list_changed">
                         <ListView.View>

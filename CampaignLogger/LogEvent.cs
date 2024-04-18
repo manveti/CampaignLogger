@@ -47,8 +47,13 @@ namespace CampaignLogger {
             $"^{CHARACTER_SPEC}\\s+(departed)|(retired)|(left( (the )?party)?)$",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
         );
+        private const string EVENT_TIMESTAMP_PATTERN = @"(in\s+(?<interval>\S.*)|((on|at)\s+)?(?<timestamp>\S.*))";
         private static readonly Regex EVENT_TIMESTAMP_EXP = new Regex(
-            @"^((in\s+(?<interval>\S.*)|((on|at)\s+)?(?<timestamp>\S.*)))$",
+            $"^({EVENT_TIMESTAMP_PATTERN})$",
+            RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
+        );
+        private static readonly Regex DUE_TIMESTAMP_EXP = new Regex(
+            $"^((due)|(by)|(due\\s+by))\\s+(?<due>{EVENT_TIMESTAMP_PATTERN})$",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
         );
 
@@ -242,7 +247,52 @@ namespace CampaignLogger {
                     return null;
                 }
                 return new EventCompletionEvent(reference, function.args[0]);
-            //TODO: task functions
+            case "task": {
+                    if (function.args.Count < 1) {
+                        return null;
+                    }
+                    string name = function.args[0];
+                    EventTimestamp due = null;
+                    string description = null;
+                    if (function.args.Count > 1) {
+                        int startIdx = 1, endIdx = function.args.Count;
+                        Match match = DUE_TIMESTAMP_EXP.Match(function.args[1]);
+                        if (match.Success) {
+                            due = parse_event_timestamp(match.Groups["due"].Value);
+                            if (due is not null) {
+                                startIdx += 1;
+                            }
+                        }
+                        else {
+                            match = DUE_TIMESTAMP_EXP.Match(function.args[^1]);
+                            if (match.Success) {
+                                due = parse_event_timestamp(match.Groups["due"].Value);
+                                if (due is not null) {
+                                    endIdx -= 1;
+                                }
+                            }
+                        }
+                        if (startIdx < endIdx) {
+                            StringBuilder descBuilder = new StringBuilder(function.args[startIdx]);
+                            for (int i = startIdx + 1; i < endIdx; i++) {
+                                descBuilder.Append("; ");
+                                descBuilder.Append(function.args[i]);
+                            }
+                            description = descBuilder.ToString();
+                        }
+                    }
+                    return new TaskAddEvent(reference, name, description, due);
+                }
+            case "task completed":
+            case "task cleared":
+            case "task done":
+            case "task failed":
+            case "task over":
+            case "task remove":
+                if (function.args.Count != 1) {
+                    return null;
+                }
+                return new TaskCompletionEvent(reference, function.args[0]);
             }
             return null;
         }
@@ -515,5 +565,41 @@ namespace CampaignLogger {
         }
     }
 
-    //TODO: tasks
+    public class TaskAddEvent : LogEvent {
+        public string name;
+        public string description;
+        public EventTimestamp due;
+
+        public TaskAddEvent(LogReference reference, string name, string description, EventTimestamp due) : base(reference) {
+            this.name = name;
+            this.description = description;
+            this.due = due;
+        }
+
+        public override void apply(CampaignState state) {
+            EventTimestamp timestamp = new EventTimestamp(state.timestamp, null);
+            EventTimestamp due = this.due;
+            if ((due is not null) && (due.delta is not null)) {
+                due = new EventTimestamp(state.timestamp, due.delta);
+            }
+            if (!state.model.validate_event_timestamp(due)) {
+                //TODO: log error
+                return;
+            }
+            state.tasks[this.name] = new TaskState(timestamp, this.description, due);
+            state.tasks[this.name].references.Add(this.reference);
+        }
+    }
+
+    public class TaskCompletionEvent : LogEvent {
+        public string name;
+
+        public TaskCompletionEvent(LogReference reference, string name) : base(reference) {
+            this.name = name;
+        }
+
+        public override void apply(CampaignState state) {
+            state.tasks.Remove(this.name);
+        }
+    }
 }

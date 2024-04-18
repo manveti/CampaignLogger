@@ -6,6 +6,7 @@ namespace CampaignLogger {
         public enum ReferenceType {
             Topic,
             Character,
+            //TODO: inventory item, event, task
         }
 
         public ReferenceType type;
@@ -102,7 +103,25 @@ namespace CampaignLogger {
         }
     }
 
-    //TODO: tasks
+    public class TaskState {
+        public EventTimestamp timestamp;
+        public string description;
+        public EventTimestamp due;
+        public List<LogReference> references;
+
+        public TaskState(EventTimestamp timestamp, string description, EventTimestamp due = null) {
+            this.timestamp = timestamp;
+            this.description = description;
+            this.due = due;
+            this.references = new List<LogReference>();
+        }
+
+        public TaskState copy() {
+            TaskState result = new TaskState(this.timestamp, this.description, this.due);
+            result.references.AddRange(this.references);
+            return result;
+        }
+    }
 
     public class CampaignState {
         public LogModel model;
@@ -110,7 +129,7 @@ namespace CampaignLogger {
         public Dictionary<string, CharacterState> characters;
         //TODO: inventory
         public Dictionary<string, EventState> events;
-        //TODO: tasks
+        public Dictionary<string, TaskState> tasks;
         protected string _timestamp;
 
         public string timestamp {
@@ -132,7 +151,7 @@ namespace CampaignLogger {
             this.characters = new Dictionary<string, CharacterState>();
             //TODO: inventory
             this.events = new Dictionary<string, EventState>();
-            //TODO: tasks
+            this.tasks = new Dictionary<string, TaskState>();
         }
 
         protected CampaignState(CampaignState prev) : this(prev.model) {
@@ -146,7 +165,9 @@ namespace CampaignLogger {
             foreach (string evtName in prev.events.Keys) {
                 this.events[evtName] = prev.events[evtName].copy();
             }
-            //TODO: tasks
+            foreach (string taskName in prev.tasks.Keys) {
+                this.tasks[taskName] = prev.tasks[taskName].copy();
+            }
             this._timestamp = prev._timestamp;
         }
 

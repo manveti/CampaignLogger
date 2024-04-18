@@ -75,7 +75,21 @@ namespace CampaignLogger {
             }
         }
 
-        //TODO: display type for tasks
+        private class TaskEntry {
+            private string _name;
+            private string _due;
+            private string _delta;
+
+            public string name => this._name;
+            public string due => this._due;
+            public string delta => this._delta;
+
+            public TaskEntry(string name, string due, string delta) {
+                this._name = name;
+                this._due = due;
+                this._delta = delta;
+            }
+        }
 
         private class SessionEntry {
             private SessionRecord _session;
@@ -149,13 +163,13 @@ namespace CampaignLogger {
         private List<CharacterEntry> party_display;
         //TODO: inventory display
         private List<EventEntry> events_display;
-        //TODO: tasks display
+        private List<TaskEntry> tasks_display;
         private List<SessionEntry> sessions_display;
         private TopicInfoControl topic_info;
         private CharacterInfoControl character_info;
         //TODO: other info controls
         private EventInfoControl event_info;
-        //TODO: task info control
+        private TaskInfoControl task_info;
         private SessionInfoControl session_info;
         private List<ReferenceEntry> references_display;
         private CompletionWindow completion_window = null;
@@ -170,13 +184,13 @@ namespace CampaignLogger {
             this.party_display = new List<CharacterEntry>();
             //TODO: inventory display
             this.events_display = new List<EventEntry>();
-            //TODO: tasks display
+            this.tasks_display = new List<TaskEntry>();
             this.sessions_display = new List<SessionEntry>();
             this.topic_info = new TopicInfoControl(this);
             this.character_info = new CharacterInfoControl();
             //TODO: other info controls
             this.event_info = new EventInfoControl();
-            //TODO: task info control
+            this.task_info = new TaskInfoControl();
             this.session_info = new SessionInfoControl();
             this.references_display = new List<ReferenceEntry>();
             InitializeComponent();
@@ -188,7 +202,7 @@ namespace CampaignLogger {
             this.party_list.ItemsSource = this.party_display;
             //TODO: inventory display
             this.events_list.ItemsSource = this.events_display;
-            //TODO: tasks display
+            this.tasks_list.ItemsSource = this.tasks_display;
             this.session_list.ItemsSource = this.sessions_display;
             this.reference_list.ItemsSource = this.references_display;
             this.dispatcher_timer.Start();
@@ -268,7 +282,54 @@ namespace CampaignLogger {
             }
         }
 
-        //TODO: update tasks list
+        private int task_list_cmp(string t1, string t2) {
+            TaskState task1 = this.model.campaign_state.tasks[t1];
+            TaskState task2 = this.model.campaign_state.tasks[t2];
+            int result = 0;
+            // treat null due as infinite (i.e. push to end of list)
+            if (task1.due is null) {
+                if (task2 is not null) {
+                    return 1;
+                }
+            }
+            else if (task2.due is null) {
+                return -1;
+            }
+            else {
+                result = this.model.calendar.compare_timestamps(task1.due, task2.due);
+            }
+            if (result != 0) {
+                return result;
+            }
+            // due dates the same; fall back to when the task was taken on (most recent first)
+            return this.model.calendar.compare_timestamps(task2.timestamp, task1.timestamp);
+        }
+
+        private void update_tasks_list() {
+            string selected = this.tasks_list.SelectedValue as string;
+            bool selectionValid = (selected is not null) && (this.model.campaign_state.tasks.ContainsKey(selected));
+            this.tasks_display.Clear();
+            foreach (string name in this.model.campaign_state.tasks.Keys) {
+                TaskState task = this.model.campaign_state.tasks[name];
+                string due = "", delta = "";
+                if (this.model.calendar is not null) {
+                    due = this.model.calendar.format_timestamp(task.due);
+                    delta = this.model.calendar.subtract_timestamp(task.due, this.model.campaign_state.timestamp);
+                }
+                this.tasks_display.Add(new TaskEntry(name, due, delta ?? ""));
+            }
+            if (this.model.calendar is not null) {
+                this.tasks_display.Sort((x, y) => this.task_list_cmp(x.name, y.name));
+            }
+            else {
+                this.tasks_display.Sort((x, y) => x.name.CompareTo(y.name));
+            }
+            this.tasks_list.Items.Refresh();
+            fix_listview_column_widths(this.tasks_list);
+            if (selectionValid) {
+                this.tasks_list.SelectedValue = selected;
+            }
+        }
 
         private void update_session_list() {
             SessionRecord selected = this.session_list.SelectedValue as SessionRecord;
@@ -330,8 +391,16 @@ namespace CampaignLogger {
                 this.update_reference_list(null);
             }
         }
-        //TODO: update_event_references
-        //TODO: update_task_references
+
+        private void update_task_references() {
+            string selected = this.tasks_list.SelectedValue as string;
+            if ((selected is not null) && (this.model.campaign_state.tasks.ContainsKey(selected))) {
+                this.update_reference_list(this.model.campaign_state.tasks[selected].references);
+            }
+            else {
+                this.update_reference_list(null);
+            }
+        }
 
         private void update_session_references() {
             List<LogReference> references = new List<LogReference>();
@@ -598,7 +667,7 @@ namespace CampaignLogger {
             this.update_party_list();
             //TODO: update inventory list
             this.update_events_list();
-            //TODO: update tasks list
+            this.update_tasks_list();
             this.update_session_list();
             if (this.model.sessions.Count > 0) {
                 SessionRecord lastSession = this.model.sessions[this.model.sessions.Count - 1];
@@ -675,7 +744,13 @@ namespace CampaignLogger {
             this.update_event_references();
         }
 
-        //TODO: tasks_tab_selected
+        private void tasks_tab_selected(object sender, RoutedEventArgs e) {
+            if (sender is not TabItem) {
+                return;
+            }
+            this.details_tab.Content = this.task_info;
+            this.update_task_references();
+        }
 
         private void session_tab_selected(object sender, RoutedEventArgs e) {
             if (sender is not TabItem) {
@@ -820,7 +895,56 @@ namespace CampaignLogger {
             this.update_event_references();
         }
 
-        //TODO: tasks handlers handlers
+        private void tasks_list_changed(object sender, SelectionChangedEventArgs e) {
+            string selected = this.tasks_list.SelectedValue as string;
+            if ((selected is not null) && (this.model.campaign_state.tasks.ContainsKey(selected))) {
+                TaskState task = this.model.campaign_state.tasks[selected];
+                this.task_info.name_box.Content = selected;
+                string due = null, delta = null;
+                if (this.model.calendar is not null) {
+                    this.task_info.timestamp_box.Content = this.model.calendar.format_timestamp(task.timestamp);
+                    if (task.due is not null) {
+                        due = this.model.calendar.format_timestamp(task.due);
+                        delta = this.model.calendar.subtract_timestamp(task.due, this.model.campaign_state.timestamp);
+                    }
+                }
+                else {
+                    this.task_info.timestamp_box.Content = task.timestamp.timestamp;
+                    if (task.due is not null) {
+                        due = task.due.timestamp;
+                    }
+                }
+                if (due is not null) {
+                    this.task_info.due_lbl.Visibility = Visibility.Visible;
+                    this.task_info.due_box.Content = due;
+                    this.task_info.due_box.Visibility = Visibility.Visible;
+                }
+                else {
+                    this.task_info.due_lbl.Visibility = Visibility.Collapsed;
+                    this.task_info.due_box.Visibility = Visibility.Collapsed;
+                }
+                if (delta is not null) {
+                    this.task_info.delta_lbl.Visibility = Visibility.Visible;
+                    this.task_info.delta_box.Content = delta;
+                    this.task_info.delta_box.Visibility = Visibility.Visible;
+                }
+                else {
+                    this.task_info.delta_lbl.Visibility = Visibility.Collapsed;
+                    this.task_info.delta_box.Visibility = Visibility.Collapsed;
+                }
+                this.task_info.desc_box.Text = task.description ?? "";
+            }
+            else {
+                this.task_info.name_box.Content = "";
+                this.task_info.timestamp_box.Content = "";
+                this.task_info.due_lbl.Visibility = Visibility.Collapsed;
+                this.task_info.due_box.Visibility = Visibility.Collapsed;
+                this.task_info.delta_lbl.Visibility = Visibility.Collapsed;
+                this.task_info.delta_box.Visibility = Visibility.Collapsed;
+                this.task_info.desc_box.Text = "";
+            }
+            this.update_task_references();
+        }
 
         private void session_list_changed(object sender, SelectionChangedEventArgs e) {
             SessionRecord selected = this.session_list.SelectedValue as SessionRecord;
