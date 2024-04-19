@@ -18,6 +18,7 @@ namespace CampaignLogger {
         private static readonly TimeSpan TYPING_POLL_INTERVAL = TimeSpan.FromMilliseconds(500);
         private static readonly TimeSpan TYPING_DELAY = TimeSpan.FromSeconds(5);
 
+        private static readonly Regex COMMENT_EXP = new Regex(@"^(?<content>.*?)\s*//.*$", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
         private static readonly Regex TOKEN_END_EXP = new Regex(
             @"^[\s,;]?$", RegexOptions.Compiled | RegexOptions.ExplicitCapture
         );
@@ -25,7 +26,7 @@ namespace CampaignLogger {
             @"[\s,;]", RegexOptions.Compiled | RegexOptions.ExplicitCapture
         );
         private static readonly Regex CHARACTER_EXP = new Regex(
-            @"^((?<player>[^:]+):)?\s+([(](?<departure>[^)]+)[)]\s+)?(?<name>[^(]+?)(\s+[(](?<desc>[^)]+)[)])?$",
+            @"^((?<player>[^:]+):)?\s+([(](?<departure>[^)]+)[)]\s+)?(?<name>[^(\s][^(]*?)(\s+[(](?<desc>[^)]+)[)])?$",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture
         );
         private static readonly Regex SESSION_EXP = new Regex(
@@ -430,7 +431,16 @@ namespace CampaignLogger {
                     gotEmpty = true;
                     continue;
                 }
-                Match match = CHARACTER_EXP.Match(line);
+                Match match = COMMENT_EXP.Match(line);
+                if (match.Success) {
+                    // trim out end-of-line comment
+                    line = match.Groups["content"].Value;
+                    if (line == "") {
+                        // comment was whole line; skip line
+                        continue;
+                    }
+                }
+                match = CHARACTER_EXP.Match(line);
                 if ((match.Success) && ((player is not null) || (match.Groups["player"].Success))) {
                     // got a valid character line; handle it
                     if (match.Groups["player"].Success) {
@@ -552,7 +562,15 @@ namespace CampaignLogger {
                     firstTail = true;
                 }
                 string line = this.log_box.Document.GetText(lineSpec.Offset, lineSpec.Length);
-                Match match;
+                Match match = COMMENT_EXP.Match(line);
+                if (match.Success) {
+                    // trim out end-of-line comment
+                    line = match.Groups["content"].Value;
+                    if (line == "") {
+                        // comment was whole line; skip line
+                        continue;
+                    }
+                }
                 if (curLine is not null) {
                     // we had an entry line before; extend it if this is a continuation...
                     match = SESSION_ENTRY_CONTINUATION_EXP.Match(line);
