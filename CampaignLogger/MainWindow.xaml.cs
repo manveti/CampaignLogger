@@ -155,7 +155,7 @@ namespace CampaignLogger {
         }
 
         private LogModel model;
-        private DateTime? players_update_due = null;
+        private DateTime? header_update_due = null;
         private DateTime? timeline_update_due = null;
         private int timeline_update_session;
         private bool timeline_update_session_dirty;
@@ -232,7 +232,7 @@ namespace CampaignLogger {
                 seenCharacters.Add(name);
             }
             if (this.party_departed_box.IsChecked == true) {
-                // add characters listed in the players section but not currently in the party
+                // add characters listed in the header section but not currently in the party
                 foreach (string name in this.model.characters.Keys) {
                     if (seenCharacters.Contains(name)) {
                         continue;
@@ -359,6 +359,7 @@ namespace CampaignLogger {
             }
             this.references_display.Reverse();
             this.reference_list.Items.Refresh();
+            fix_listview_column_widths(this.reference_list);
         }
 
         private void update_topic_references() {
@@ -414,15 +415,28 @@ namespace CampaignLogger {
             this.update_reference_list(references);
         }
 
-        private void do_players_update() {
+        private bool handle_header_function(MarkupFunction function) {
+            switch (function.name) {
+            case "calendar":
+                if (function.args.Count != 1) {
+                    //TODO: log error
+                    return false;
+                }
+                this.model.calendar = Calendar.get_calendar(function.args[0]);
+                return true;
+            }
+            return false;
+        }
+
+        private void do_header_update() {
             HashSet<string> unreferencedChars = new HashSet<string>(this.model.characters.Keys);
             int endLine = this.log_box.Document.LineCount;
-            if ((this.model.players_section_end is not null) && (this.model.players_section_end.Line - 1 < endLine)) {
+            if ((this.model.header_section_end is not null) && (this.model.header_section_end.Line - 1 < endLine)) {
                 // TextAnchor line indices are 1-based
-                endLine = this.model.players_section_end.Line - 1;
+                endLine = this.model.header_section_end.Line - 1;
             }
             string player = null;
-            bool gotEmpty = false;
+            bool gotEmpty = false, gotHeader = false;
             for (int i = 0; i < endLine; i++) {
                 DocumentLine lineSpec = this.log_box.Document.Lines[i];
                 string line = this.log_box.Document.GetText(lineSpec.Offset, lineSpec.Length);
@@ -440,9 +454,18 @@ namespace CampaignLogger {
                         continue;
                     }
                 }
+                MarkupFunction function = LogParser.parse_function(line);
+                if (function is not null) {
+                    // got a valid markup function; handle it
+                    if (this.handle_header_function(function)) {
+                        gotHeader = true;
+                    }
+                    continue;
+                }
                 match = CHARACTER_EXP.Match(line);
                 if ((match.Success) && ((player is not null) || (match.Groups["player"].Success))) {
                     // got a valid character line; handle it
+                    gotHeader = true;
                     if (match.Groups["player"].Success) {
                         player = match.Groups["player"].Value;
                     }
@@ -470,11 +493,11 @@ namespace CampaignLogger {
                     gotEmpty = false;
                     continue;
                 }
-                // out of valid character lines; mark end of players section if necessary then bail
-                if (player is not null) {
-                    // got at least one valid character; mark end of players section at start of invalid line with right-affinity
-                    this.model.players_section_end = this.log_box.Document.CreateAnchor(lineSpec.Offset);
-                    this.model.players_section_end.MovementType = AnchorMovementType.AfterInsertion;
+                // out of valid header lines; mark end of header section if necessary then bail
+                if (gotHeader) {
+                    // got at least one valid character; mark end of header section at start of invalid line with right-affinity
+                    this.model.header_section_end = this.log_box.Document.CreateAnchor(lineSpec.Offset);
+                    this.model.header_section_end.MovementType = AnchorMovementType.AfterInsertion;
                 }
                 break;
             }
@@ -508,9 +531,9 @@ namespace CampaignLogger {
                 // TextAnchor line indices are 1-based
                 startLine = this.model.timeline_section_start.Line - 1;
             }
-            else if (this.model.players_section_end is not null) {
+            else if (this.model.header_section_end is not null) {
                 // TextAnchor line indices are 1-based
-                startLine = this.model.players_section_end.Line - 1;
+                startLine = this.model.header_section_end.Line - 1;
             }
             int endLine = this.log_box.Document.LineCount;
             if (this.timeline_update_session < this.model.sessions.Count) {
@@ -704,9 +727,9 @@ namespace CampaignLogger {
                 this.log_box.TextArea.Focus();
             }
             DateTime now = DateTime.Now;
-            if ((this.players_update_due is not null) && (now >= this.players_update_due)) {
-                this.players_update_due = null;
-                this.do_players_update();
+            if ((this.header_update_due is not null) && (now >= this.header_update_due)) {
+                this.header_update_due = null;
+                this.do_header_update();
             }
             if ((this.timeline_update_due is not null) && (now >= this.timeline_update_due)) {
                 this.timeline_update_due = null;
@@ -1040,7 +1063,7 @@ namespace CampaignLogger {
                 this.log_box.Document.Insert(this.log_box.CaretOffset, DateTime.Now.ToString("HHmm"));
                 return;
             }
-            //TODO: if inserting space at start of line in players or timeline section, insert one less than necessary for line continuation
+            //TODO: if inserting space at start of line in header or timeline section, insert one less than necessary for line continuation
         }
 
         private void populate_completions(IEnumerable<string> items) {
@@ -1106,9 +1129,9 @@ namespace CampaignLogger {
             int updateSession = this.model.sessions.Count;
             bool updateSessionDirty = false;
 
-            if (this.model.players_section_end is not null) {
-                if ((this.model.players_section_end.IsDeleted) || (this.model.players_section_end.Offset <= 0)) {
-                    this.model.players_section_end = null;
+            if (this.model.header_section_end is not null) {
+                if ((this.model.header_section_end.IsDeleted) || (this.model.header_section_end.Offset <= 0)) {
+                    this.model.header_section_end = null;
                 }
             }
             if (this.model.timeline_section_start is not null) {
@@ -1117,8 +1140,8 @@ namespace CampaignLogger {
                 }
             }
 
-            if ((this.model.players_section_end is null) || (e.Offset < this.model.players_section_end.Offset)) {
-                // got a change to players section; we'll need to mark players section for update
+            if ((this.model.header_section_end is null) || (e.Offset < this.model.header_section_end.Offset)) {
+                // got a change to header section; we'll need to mark header section for update
                 needPlayersUpdate = true;
             }
             int timelineSectionOffset = 0;
@@ -1158,8 +1181,8 @@ namespace CampaignLogger {
 
             DateTime updateTime = DateTime.Now + TYPING_DELAY;
             if (needPlayersUpdate) {
-                // signal that we'll need an update of the players section once typing has stopped for a bit
-                this.players_update_due = updateTime;
+                // signal that we'll need an update of the header section once typing has stopped for a bit
+                this.header_update_due = updateTime;
             }
             if (needTimelineUpdate) {
                 // signal that we'll need an update of the timeline section once typing has stopped for a bit

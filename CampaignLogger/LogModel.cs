@@ -53,7 +53,7 @@ namespace CampaignLogger {
     }
 
     public class LogModel {
-        public TextAnchor players_section_end;
+        public TextAnchor header_section_end;
         public TextAnchor timeline_section_start;
         public Dictionary<string, CharacterExtraInfo> characters;
         public Calendar calendar;

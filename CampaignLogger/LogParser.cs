@@ -25,7 +25,7 @@ namespace CampaignLogger {
             ["{"] = new Regex(@"\s*((?<opener>[""{])|(?<closer>[}]))\s*", RegexOptions.Compiled | RegexOptions.ExplicitCapture),
         };
         private static readonly Regex FUNCTION_EXP = new Regex(
-            @"\s*[[](?<contents>[^:]+[:][^]]+)[]]\s*", RegexOptions.Compiled | RegexOptions.ExplicitCapture
+            @"^\s*[[](?<contents>[^:]+[:][^]]+)[]]\s*$", RegexOptions.Compiled | RegexOptions.ExplicitCapture
         );
 
         public static IEnumerable<string> split_line(string s, Regex delim = null, int count = -1) {
