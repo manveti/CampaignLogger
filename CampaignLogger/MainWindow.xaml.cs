@@ -811,8 +811,16 @@ namespace CampaignLogger {
                 this.party_tab.IsSelected = true;
                 this.party_list.SelectedValue = name;
                 break;
+            //TODO: inventory reference
+            case StateReference.ReferenceType.Event:
+                this.events_tab.IsSelected = true;
+                this.events_list.SelectedValue = name;
+                break;
+            case StateReference.ReferenceType.Task:
+                this.tasks_tab.IsSelected = true;
+                this.tasks_list.SelectedValue = name;
+                break;
             }
-            //TODO: other reference types
         }
 
         private static void set_optional_info_field(Label fieldLbl, Label fieldBox, string content) {

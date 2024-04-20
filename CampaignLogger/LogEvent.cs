@@ -10,7 +10,10 @@ namespace CampaignLogger {
             @"([#](?<name>[^][,;.:}{# ]+))|([#][{](?<name>[^][}{#]+)[}])",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
         );
-        private static readonly Regex CHARACTER_SPLIT_EXP = new Regex(@"([,]|(\s+and))\s+", RegexOptions.Compiled | RegexOptions.ExplicitCapture);
+        private static readonly Regex CHARACTER_SPLIT_EXP = new Regex(
+            @"((\s*[,]?\s+and)|[,])\s+",
+            RegexOptions.Compiled | RegexOptions.ExplicitCapture
+        );
         private const string CHARACTER_WILDCARD = "(everyone)|(everybody)";
         private static readonly Regex CHARACTER_WILDCARD_EXP = new Regex(
             CHARACTER_WILDCARD, RegexOptions.Compiled | RegexOptions.ExplicitCapture | RegexOptions.IgnoreCase
@@ -72,16 +75,27 @@ namespace CampaignLogger {
                 LogEvent evt = parse_event(chunk.Trim(), reference);
                 if (evt is not null) {
                     events.Add(evt);
-                    // make note of referenced characters
-                    if ((evt is CharacterEvent charEvt) && (characters is not null)) {
+                    // make note of referenced elements
+                    switch (evt) {
+                    case CharacterEvent charEvt:
+                        if (characters is null) {
+                            break;
+                        }
                         if (charEvt.characters is null) {
                             characters = null;
                         }
                         else {
                             characters.UnionWith(charEvt.characters);
                         }
+                        break;
+                    //TODO: inventory state references
+                    case EventEvent eventEvt:
+                        stateRefs.Add(new StateReference(StateReference.ReferenceType.Event, eventEvt.name));
+                        break;
+                    case TaskEvent taskEvt:
+                        stateRefs.Add(new StateReference(StateReference.ReferenceType.Task, taskEvt.name));
+                        break;
                     }
-                    //TODO: else if's for other state references
                 }
             }
             // add topic references
@@ -528,13 +542,19 @@ namespace CampaignLogger {
 
     //TODO: inventory
 
-    public class EventAddEvent : LogEvent {
+    public abstract class EventEvent : LogEvent {
         public string name;
+
+        public EventEvent(LogReference reference, string name) : base(reference) {
+            this.name = name;
+        }
+    }
+
+    public class EventAddEvent : EventEvent {
         public EventTimestamp timestamp;
         public string description;
 
-        public EventAddEvent(LogReference reference, string name, EventTimestamp timestamp, string description) : base(reference) {
-            this.name = name;
+        public EventAddEvent(LogReference reference, string name, EventTimestamp timestamp, string description) : base(reference, name) {
             this.timestamp = timestamp;
             this.description = description;
         }
@@ -553,25 +573,27 @@ namespace CampaignLogger {
         }
     }
 
-    public class EventCompletionEvent : LogEvent {
-        public string name;
-
-        public EventCompletionEvent(LogReference reference, string name) : base(reference) {
-            this.name = name;
-        }
+    public class EventCompletionEvent : EventEvent {
+        public EventCompletionEvent(LogReference reference, string name) : base(reference, name) { }
 
         public override void apply(CampaignState state) {
             state.events.Remove(this.name);
         }
     }
 
-    public class TaskAddEvent : LogEvent {
+    public abstract class TaskEvent : LogEvent {
         public string name;
+
+        public TaskEvent(LogReference reference, string name) : base(reference) {
+            this.name = name;
+        }
+    }
+
+    public class TaskAddEvent : TaskEvent {
         public string description;
         public EventTimestamp due;
 
-        public TaskAddEvent(LogReference reference, string name, string description, EventTimestamp due) : base(reference) {
-            this.name = name;
+        public TaskAddEvent(LogReference reference, string name, string description, EventTimestamp due) : base(reference, name) {
             this.description = description;
             this.due = due;
         }
@@ -591,12 +613,8 @@ namespace CampaignLogger {
         }
     }
 
-    public class TaskCompletionEvent : LogEvent {
-        public string name;
-
-        public TaskCompletionEvent(LogReference reference, string name) : base(reference) {
-            this.name = name;
-        }
+    public class TaskCompletionEvent : TaskEvent {
+        public TaskCompletionEvent(LogReference reference, string name) : base(reference, name) { }
 
         public override void apply(CampaignState state) {
             state.tasks.Remove(this.name);

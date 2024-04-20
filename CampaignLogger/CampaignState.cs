@@ -6,7 +6,9 @@ namespace CampaignLogger {
         public enum ReferenceType {
             Topic,
             Character,
-            //TODO: inventory item, event, task
+            //TODO: inventory item
+            Event,
+            Task,
         }
 
         public ReferenceType type;

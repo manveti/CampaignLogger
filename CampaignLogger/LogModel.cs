@@ -32,8 +32,6 @@ namespace CampaignLogger {
         }
     }
 
-    //TODO: inventory, events, tasks
-
     public class SessionRecord {
         public int index;
         public bool is_relative;
